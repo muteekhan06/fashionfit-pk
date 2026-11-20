@@ -1,14 +1,10 @@
 /**
  * Vercel Serverless Function: POST /api/gemini-views
- * Stage 3 Modaya-Style 3-View Studio Generator:
- * Generates consistent multi-angle studio views from a front try-on result:
- *   - "front"         : Studio front full-body polished view
- *   - "three_quarter" : 3/4 editorial angle showing sleeve/side-slit drape
- *   - "back_detail"   : Rear / embroidery detail showcase view
- *
- * Expects JSON: { result_image_base64: string, view_mode: "front" | "three_quarter" | "back_detail" }
- * Requires env var: GEMINI_API_KEY
+ * Stage 3 Modaya-Style 3-View Studio Generator with Dual-Key Auto-Failover
+ * (Mutee Ur Rehman -> Hafiz Abdullah Muhammad)
  */
+
+import { callGeminiWithFailover } from './_gemini.js'
 
 const VIEW_PROMPTS = {
   front:
@@ -27,15 +23,6 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end()
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
-  const apiKey = (process.env.GEMINI_API_KEY || '').trim()
-  if (!apiKey || apiKey === 'YOUR_GEMINI_API_KEY_HERE') {
-    return res.status(503).json({
-      code: 'GEMINI_API_KEY_NOT_CONFIGURED',
-      detail:
-        'Gemini API key placeholder is active. Add GEMINI_API_KEY in Vercel Environment Variables to enable live 3-View Modaya Studio generation.',
-    })
-  }
-
   try {
     const { result_image_base64, view_mode = 'three_quarter' } = req.body || {}
     if (!result_image_base64 || typeof result_image_base64 !== 'string') {
@@ -47,48 +34,27 @@ export default async function handler(req, res) {
     const mimeType = match ? match[1] : 'image/jpeg'
     const rawData = match ? match[2] : result_image_base64
 
-    const model = process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image'
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`
-
-    const geminiRes = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              { text: prompt },
-              { inline_data: { mime_type: mimeType, data: rawData } },
-            ],
-          },
-        ],
-        generationConfig: {
-          responseModalities: ['TEXT', 'IMAGE'],
-        },
-      }),
+    const result = await callGeminiWithFailover({
+      prompt,
+      mimeType,
+      rawData,
     })
 
-    const data = await geminiRes.json()
-    if (!geminiRes.ok) {
-      return res.status(geminiRes.status).json({
-        detail: data?.error?.message || 'Gemini 3-View generation failed.',
+    if (!result.ok) {
+      return res.status(result.status).json({
+        code: result.code,
+        detail: result.error,
+        details: result.details,
       })
     }
 
-    const parts = data?.candidates?.[0]?.content?.parts || []
-    const imgPart = parts.find((p) => p.inlineData?.data || p.inline_data?.data)
-    if (!imgPart) {
-      return res.status(502).json({ detail: 'Gemini returned no image output.' })
-    }
-    const inline = imgPart.inlineData || imgPart.inline_data
-    const outMime = inline.mimeType || inline.mime_type || 'image/png'
-
     return res.status(200).json({
       status: 'ok',
-      model,
+      model: result.model,
       view_mode,
-      view_image: `data:${outMime};base64,${inline.data}`,
+      active_key_owner: result.activeKeyOwner,
+      failover_triggered: result.failoverTriggered,
+      view_image: result.base64Image,
     })
   } catch (err) {
     return res.status(500).json({ detail: `3-View generation error: ${err.message}` })

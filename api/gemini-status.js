@@ -1,10 +1,26 @@
+import { getGeminiKeyPool } from './_gemini.js'
+
 export default function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
-  const apiKey = (process.env.GEMINI_API_KEY || '').trim()
-  const configured = Boolean(apiKey && apiKey !== 'YOUR_GEMINI_API_KEY_HERE')
+
+  const pool = getGeminiKeyPool()
+  const configured = pool.length > 0
+
   return res.status(200).json({
     configured,
+    key_pool_count: pool.length,
+    keys: pool.map((k) => ({
+      owner: k.owner,
+      id: k.id,
+      configured: true,
+      masked: `${k.key.slice(0, 10)}...${k.key.slice(-4)}`,
+    })),
+    failover_enabled: pool.length > 1,
     model: process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image',
-    stages: ['person_studio_normalization', 'canonical_garment_extraction', 'three_view_studio'],
+    stages: [
+      'person_studio_normalization',
+      'canonical_garment_extraction',
+      'three_view_studio',
+    ],
   })
 }
