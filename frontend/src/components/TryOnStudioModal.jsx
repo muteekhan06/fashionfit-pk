@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   X,
   Upload,
@@ -10,7 +10,31 @@ import {
   ArrowLeftRight,
   CheckCircle2,
   Loader2,
+  Wand2,
+  Camera,
+  Eye,
 } from 'lucide-react'
+
+const STUDIO_VIEWS = [
+  { id: 'front', label: '1. Front Studio', desc: 'Primary full-body straight-on try-on' },
+  { id: 'three_quarter', label: '2. 3/4 Editorial', desc: 'Angled studio drape & sleeve motion' },
+  { id: 'back_detail', label: '3. Back & Detail', desc: 'Rear silhouette & embroidery close-up' },
+]
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
+
+async function dataUrlToFile(dataUrl, filename = 'canonical_kurta.png') {
+  const res = await fetch(dataUrl)
+  const blob = await res.blob()
+  return new File([blob], filename, { type: blob.type || 'image/png' })
+}
 
 export default function TryOnStudioModal({
   isOpen,
@@ -28,6 +52,8 @@ export default function TryOnStudioModal({
   const [personPreview, setPersonPreview] = useState(null)
   const [garmentFile, setGarmentFile] = useState(null)
   const [garmentPreview, setGarmentPreview] = useState(null)
+  const [canonicalPreview, setCanonicalPreview] = useState(null)
+  const [useGeminiCanonical, setUseGeminiCanonical] = useState(true)
   const [selectedModel, setSelectedModel] = useState('catvton')
   const [garmentType, setGarmentType] = useState('flat-lay')
   const [selectedAvatar, setSelectedAvatar] = useState('A002')
@@ -36,16 +62,33 @@ export default function TryOnStudioModal({
   const [segPreview, setSegPreview] = useState(null)
   const [segVariant, setSegVariant] = useState('adapted')
 
+  const [geminiStatus, setGeminiStatus] = useState({ configured: false, model: 'gemini-2.5-flash-image' })
+  const [avatarView, setAvatarView] = useState('front')
+  const [resultView, setResultView] = useState('front')
+  const [generatedViews, setGeneratedViews] = useState({})
+
   const [loading, setLoading] = useState(false)
+  const [canonicalLoading, setCanonicalLoading] = useState(false)
+  const [viewLoading, setViewLoading] = useState(false)
   const [error, setError] = useState('')
   const [vtonResult, setVtonResult] = useState(null)
   const [segResult, setSegResult] = useState(null)
   const [showGarmentOnLeft, setShowGarmentOnLeft] = useState(false)
 
-  React.useEffect(() => {
+  useEffect(() => {
     setActiveTab(initialTab)
     setError('')
   }, [initialTab, isOpen])
+
+  useEffect(() => {
+    if (!isOpen) return
+    fetch('/api/gemini-status')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d) setGeminiStatus(d)
+      })
+      .catch(() => {})
+  }, [isOpen])
 
   if (!isOpen) return null
 
@@ -57,12 +100,39 @@ export default function TryOnStudioModal({
     return `/api${path}`
   }
 
-  const handleFileChange = (e, setFile, setPreview) => {
+  const handleFileChange = (e, setFile, setPreview, isGarment = false) => {
     const file = e.target.files?.[0]
     if (!file) return
     setFile(file)
     setPreview(URL.createObjectURL(file))
+    if (isGarment) setCanonicalPreview(null)
     setError('')
+  }
+
+  const runGeminiCanonicalize = async () => {
+    if (!garmentFile) {
+      setError('Upload a Pakistani kurta reference photo first to canonicalize it.')
+      return null
+    }
+    setCanonicalLoading(true)
+    setError('')
+    try {
+      const dataUrl = await fileToDataUrl(garmentFile)
+      const res = await fetch('/api/gemini-canonicalize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image_base64: dataUrl }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || 'Gemini canonicalization failed')
+      setCanonicalPreview(data.canonical_image)
+      return data.canonical_image
+    } catch (err) {
+      setError(err.message)
+      return null
+    } finally {
+      setCanonicalLoading(false)
+    }
   }
 
   const runVton = async () => {
@@ -79,23 +149,56 @@ export default function TryOnStudioModal({
     setLoading(true)
     setError('')
     setVtonResult(null)
+    setGeneratedViews({})
+    setResultView('front')
     try {
+      let garmentToSend = garmentFile
+      if (useGeminiCanonical && geminiStatus.configured) {
+        const canonicalDataUrl = canonicalPreview || (await runGeminiCanonicalize())
+        if (canonicalDataUrl) {
+          garmentToSend = await dataUrlToFile(canonicalDataUrl, 'canonical_kurta.png')
+        }
+      }
+
       const fd = new FormData()
       fd.append('person_image', personFile)
-      fd.append('garment_image', garmentFile)
+      fd.append('garment_image', garmentToSend)
       fd.append('model_id', selectedModel)
       fd.append('category', 'tops')
-      fd.append('garment_photo_type', garmentType)
+      fd.append('garment_photo_type', canonicalPreview ? 'flat-lay' : garmentType)
       fd.append('seed', '42')
 
       const res = await fetch(directEndpoint('/vton'), { method: 'POST', body: fd })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || 'VTON inference failed')
       setVtonResult(data)
+      setGeneratedViews({ front: data.result_image })
     } catch (err) {
       setError(err.message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const runGeminiView = async (viewMode, baseImage) => {
+    setResultView(viewMode)
+    if (generatedViews[viewMode]) return
+    if (!baseImage) return
+    setViewLoading(true)
+    setError('')
+    try {
+      const res = await fetch('/api/gemini-views', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ result_image_base64: baseImage, view_mode: viewMode }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || 'Gemini 3-View generation failed')
+      setGeneratedViews((prev) => ({ ...prev, [viewMode]: data.view_image }))
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setViewLoading(false)
     }
   }
 
@@ -143,17 +246,29 @@ export default function TryOnStudioModal({
             <div>
               <h2 className="text-lg font-bold leading-tight">FashionFit-PK Interactive Studio</h2>
               <p className="text-xs text-emerald-100">
-                Real Neural Models: SegFormer-B2 Clothes • CatVTON • FASHN VTON v1.5
+                Gemini Canonical Bridge • Adapted SegFormer-B2 • CatVTON / FASHN • 3-View Studio
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-lg hover:bg-white/15 transition cursor-pointer"
-            aria-label="Close studio"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2.5">
+            <span
+              className={`hidden sm:inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full ${
+                geminiStatus.configured
+                  ? 'bg-emerald-400/20 text-emerald-100 border border-emerald-300/30'
+                  : 'bg-white/10 text-amber-200 border border-white/20'
+              }`}
+            >
+              <Wand2 className="w-3 h-3" />
+              {geminiStatus.configured ? 'Gemini API Ready' : 'Gemini Key Placeholder'}
+            </span>
+            <button
+              onClick={onClose}
+              className="p-2 rounded-lg hover:bg-white/15 transition cursor-pointer"
+              aria-label="Close studio"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Live Colab GPU Connection Bar */}
@@ -191,8 +306,8 @@ export default function TryOnStudioModal({
         {/* 3-Tab Switcher */}
         <div className="px-6 pt-5 pb-3 border-b border-slate-100 flex flex-wrap gap-2">
           {[
-            { id: 'avatar', label: 'Avatar Try-On (Instant Demo)', icon: ShieldCheck },
-            { id: 'photo', label: 'Live Photo Try-On', icon: Upload },
+            { id: 'avatar', label: 'Avatar Try-On (3-View Demo)', icon: ShieldCheck },
+            { id: 'photo', label: 'Live Photo Try-On + Gemini Bridge', icon: Upload },
             { id: 'segment', label: '4-Class Garment Parsing', icon: Layers },
           ].map(({ id, label, icon: Icon }) => (
             <button
@@ -222,7 +337,7 @@ export default function TryOnStudioModal({
             </div>
           )}
 
-          {/* TAB 1: AVATAR TRY-ON (INSTANT VERIFIED R2 PREVIEW) */}
+          {/* TAB 1: AVATAR TRY-ON (MODAYA 3-VIEW STUDIO DEMO) */}
           {activeTab === 'avatar' && (
             <div className="space-y-5">
               <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-center gap-2">
@@ -293,21 +408,61 @@ export default function TryOnStudioModal({
                   </div>
                 </div>
 
-                {/* Live Pre-Computed Result Preview */}
+                {/* Modaya 3-View Studio Preview */}
                 <div className="lg:col-span-7 rounded-2xl bg-slate-900 p-4 text-white space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold uppercase tracking-wider text-emerald-300">
-                      Verified R2 Colab Output • {selectedAvatar} × {currentProductObj?.name}
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-emerald-300 flex items-center gap-1.5">
+                      <Camera className="w-3.5 h-3.5" />
+                      Modaya 3-View Studio • {selectedAvatar} × {currentProductObj?.name}
                     </span>
                     <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-white/10 text-slate-200">
                       DEMO ONLY
                     </span>
                   </div>
-                  <img
-                    src={previewImage}
-                    alt="Verified R2 Virtual Try-On Preview"
-                    className="w-full rounded-xl bg-white object-contain max-h-96"
-                  />
+
+                  {/* 3-View Selector Pills */}
+                  <div className="grid grid-cols-3 gap-2">
+                    {STUDIO_VIEWS.map((v) => (
+                      <button
+                        key={v.id}
+                        onClick={() => setAvatarView(v.id)}
+                        className={`px-2.5 py-2 rounded-xl text-left transition cursor-pointer border ${
+                          avatarView === v.id
+                            ? 'bg-white text-slate-900 border-white shadow-sm'
+                            : 'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10'
+                        }`}
+                      >
+                        <p className="text-xs font-bold leading-tight">{v.label}</p>
+                        <p className={`text-[10px] mt-0.5 truncate ${avatarView === v.id ? 'text-slate-600' : 'text-slate-400'}`}>
+                          {v.desc}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="relative rounded-xl bg-white overflow-hidden">
+                    <img
+                      src={previewImage}
+                      alt="Verified R2 Virtual Try-On Preview"
+                      className={`w-full object-contain max-h-96 transition duration-300 ${
+                        avatarView === 'three_quarter'
+                          ? 'scale-[1.08] origin-right'
+                          : avatarView === 'back_detail'
+                            ? 'scale-[1.35] origin-right'
+                            : ''
+                      }`}
+                    />
+                    {avatarView !== 'front' && (
+                      <div className="absolute bottom-3 left-3 right-3 px-3 py-2 rounded-lg bg-slate-950/85 backdrop-blur text-[11px] text-amber-200 flex items-center justify-between gap-2">
+                        <span>
+                          {geminiStatus.configured
+                            ? `Gemini 3-View Engine ready for ${avatarView === 'three_quarter' ? '3/4 Editorial' : 'Back & Detail'} synthesis in Live Photo Try-On.`
+                            : 'Gemini API Key Placeholder — Add GEMINI_API_KEY in Vercel to synthesize live 3/4 Editorial & Back angles.'}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
                   <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
                     <p className="text-xs text-slate-300">
                       Left: Source Reference • Center: Target Avatar • Right: Generated Output
@@ -316,7 +471,7 @@ export default function TryOnStudioModal({
                       onClick={() => setActiveTab('photo')}
                       className="px-3.5 py-1.5 rounded-lg bg-white text-slate-900 text-xs font-bold hover:bg-slate-100 cursor-pointer"
                     >
-                      Run Custom Photo Live →
+                      Run Live Pipeline + Gemini Bridge →
                     </button>
                   </div>
                 </div>
@@ -324,11 +479,35 @@ export default function TryOnStudioModal({
             </div>
           )}
 
-          {/* TAB 2: PHOTO TRY-ON */}
+          {/* TAB 2: LIVE PHOTO TRY-ON + GEMINI CANONICAL BRIDGE + 3-VIEW STUDIO */}
           {activeTab === 'photo' && (
             <div className="space-y-6">
               {!vtonResult ? (
                 <>
+                  {/* Stage 1 Gemini Canonical Bridge Banner */}
+                  <div className="p-4 rounded-xl bg-indigo-50/80 border border-indigo-200 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-start gap-2.5 max-w-2xl">
+                      <Wand2 className="w-5 h-5 text-indigo-700 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-xs font-bold text-indigo-950">
+                          Stage 1 Generative Pre-Processor: Gemini Canonical Kurta Extractor
+                        </p>
+                        <p className="text-xs text-indigo-800/90 mt-0.5">
+                          Automatically removes hangers, props, dupattas &amp; occlusions into a pure-white canonical flat-lay before VTON so kurta shape and embroidery stay intact.
+                        </p>
+                      </div>
+                    </div>
+                    <label className="flex items-center gap-2 text-xs font-bold text-indigo-950 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={useGeminiCanonical}
+                        onChange={(e) => setUseGeminiCanonical(e.target.checked)}
+                        className="rounded border-indigo-400 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      Auto-Canonicalize ({geminiStatus.configured ? 'Live' : 'Placeholder'})
+                    </label>
+                  </div>
+
                   <div className="grid md:grid-cols-2 gap-6">
                     {/* Target Person Upload */}
                     <div className="rounded-xl border-2 border-dashed border-slate-300 p-5 text-center bg-slate-50/70">
@@ -356,10 +535,21 @@ export default function TryOnStudioModal({
                       </label>
                     </div>
 
-                    {/* Garment Upload */}
+                    {/* Garment Upload + Canonical Preview */}
                     <div className="rounded-xl border-2 border-dashed border-slate-300 p-5 text-center bg-slate-50/70">
                       <p className="text-sm font-bold text-slate-800 mb-2">2. Pakistani Kurta / Garment Reference</p>
-                      {garmentPreview ? (
+                      {canonicalPreview ? (
+                        <div className="relative mb-3">
+                          <img
+                            src={canonicalPreview}
+                            alt="Gemini canonical kurta"
+                            className="mx-auto h-56 object-contain rounded-lg bg-white border border-indigo-200"
+                          />
+                          <span className="absolute top-2 right-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-600 text-white">
+                            Gemini Canonicalized
+                          </span>
+                        </div>
+                      ) : garmentPreview ? (
                         <img
                           src={garmentPreview}
                           alt="Garment reference"
@@ -368,18 +558,30 @@ export default function TryOnStudioModal({
                       ) : (
                         <div className="h-56 flex flex-col items-center justify-center text-slate-400">
                           <Upload className="w-8 h-8 mb-2" />
-                          <span className="text-xs">Hanging kurta, flat-lay, or extracted cutout</span>
+                          <span className="text-xs">Hanging kurta, flat-lay, or model-worn photo</span>
                         </div>
                       )}
-                      <label className="inline-block cursor-pointer text-xs font-semibold px-4 py-2 rounded-lg bg-white border border-slate-300 hover:bg-slate-100">
-                        Choose Garment Photo
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={(e) => handleFileChange(e, setGarmentFile, setGarmentPreview)}
-                        />
-                      </label>
+                      <div className="flex flex-wrap items-center justify-center gap-2">
+                        <label className="inline-block cursor-pointer text-xs font-semibold px-4 py-2 rounded-lg bg-white border border-slate-300 hover:bg-slate-100">
+                          Choose Garment Photo
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => handleFileChange(e, setGarmentFile, setGarmentPreview, true)}
+                          />
+                        </label>
+                        {garmentFile && (
+                          <button
+                            onClick={runGeminiCanonicalize}
+                            disabled={canonicalLoading}
+                            className="inline-flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 cursor-pointer"
+                          >
+                            {canonicalLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+                            {canonicalLoading ? 'Canonicalizing...' : 'Canonicalize (Gemini)'}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -387,13 +589,13 @@ export default function TryOnStudioModal({
                   <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-xl bg-slate-50 border border-slate-200">
                     <div className="flex flex-wrap items-center gap-4">
                       <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">VTON Model</label>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Stage 2 VTON Model</label>
                         <select
                           value={selectedModel}
                           onChange={(e) => setSelectedModel(e.target.value)}
                           className="text-sm px-3 py-1.5 rounded-lg border border-slate-300 bg-white"
                         >
-                          <option value="catvton">CatVTON (R2 Top Performer • SegFormer-B2 Mask)</option>
+                          <option value="catvton">CatVTON (R2 Top Performer • Adapted SegFormer-B2 Mask)</option>
                           <option value="fashn_vton_1_5">FASHN VTON v1.5 (Auto-Parse)</option>
                         </select>
                       </div>
@@ -416,13 +618,40 @@ export default function TryOnStudioModal({
                       className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#0F5C4D] to-[#9B1D4A] text-white font-semibold text-sm hover:opacity-95 disabled:opacity-50 transition cursor-pointer"
                     >
                       {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                      {loading ? 'Running Colab GPU Inference...' : 'Generate Virtual Try-On'}
+                      {loading ? 'Running Pipeline...' : 'Generate Virtual Try-On'}
                     </button>
                   </div>
                 </>
               ) : (
-                /* Side-by-Side Comparison */
+                /* Side-by-Side Comparison + Modaya 3-View Studio */
                 <div className="space-y-4">
+                  {/* Modaya 3-View Selector */}
+                  <div className="grid grid-cols-3 gap-3">
+                    {STUDIO_VIEWS.map((v) => (
+                      <button
+                        key={v.id}
+                        onClick={() => runGeminiView(v.id, vtonResult.result_image)}
+                        className={`p-3 rounded-xl text-left transition cursor-pointer border ${
+                          resultView === v.id
+                            ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                            : 'bg-slate-50 text-slate-800 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold">{v.label}</span>
+                          {generatedViews[v.id] ? (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                          ) : (
+                            <Wand2 className="w-3.5 h-3.5 text-indigo-400" />
+                          )}
+                        </div>
+                        <p className={`text-[11px] mt-0.5 ${resultView === v.id ? 'text-slate-300' : 'text-slate-500'}`}>
+                          {v.desc}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+
                   <div className="grid md:grid-cols-2 gap-6">
                     <div className="rounded-xl bg-slate-900 p-4 text-white">
                       <div className="flex items-center justify-between mb-3">
@@ -438,7 +667,7 @@ export default function TryOnStudioModal({
                         </button>
                       </div>
                       <img
-                        src={showGarmentOnLeft ? garmentPreview : personPreview}
+                        src={showGarmentOnLeft ? (canonicalPreview || garmentPreview) : personPreview}
                         alt="Input"
                         className="w-full h-80 object-contain rounded-lg"
                       />
@@ -446,22 +675,33 @@ export default function TryOnStudioModal({
 
                     <div className="rounded-xl bg-slate-900 p-4 text-white">
                       <div className="flex items-center justify-between mb-3">
-                        <span className="text-xs font-semibold uppercase tracking-wider text-emerald-300">
-                          Generated Result ({vtonResult.model_id})
+                        <span className="text-xs font-semibold uppercase tracking-wider text-emerald-300 flex items-center gap-1.5">
+                          <Eye className="w-3.5 h-3.5" />
+                          {STUDIO_VIEWS.find((v) => v.id === resultView)?.label} ({vtonResult.model_id})
                         </span>
                         <span className="text-xs text-slate-300">
                           {vtonResult.seconds}s • {vtonResult.peak_vram_mb} MB VRAM
                         </span>
                       </div>
-                      <img
-                        src={vtonResult.result_image}
-                        alt="VTON Output"
-                        className="w-full h-80 object-contain rounded-lg"
-                      />
+                      {viewLoading ? (
+                        <div className="w-full h-80 flex flex-col items-center justify-center text-slate-300 gap-2">
+                          <Loader2 className="w-7 h-7 animate-spin text-indigo-400" />
+                          <span className="text-xs">Synthesizing studio angle via Gemini...</span>
+                        </div>
+                      ) : (
+                        <img
+                          src={generatedViews[resultView] || vtonResult.result_image}
+                          alt="VTON Output"
+                          className="w-full h-80 object-contain rounded-lg"
+                        />
+                      )}
                     </div>
                   </div>
                   <button
-                    onClick={() => setVtonResult(null)}
+                    onClick={() => {
+                      setVtonResult(null)
+                      setGeneratedViews({})
+                    }}
                     className="w-full py-2.5 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 cursor-pointer"
                   >
                     Try Another Kurta / Model

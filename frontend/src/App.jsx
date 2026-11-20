@@ -245,9 +245,10 @@ export default function App() {
                 </div>
                 <div className="space-y-3">
                   {[
-                    { step: '01', title: 'SegFormer-B2 Adapted (91.0% mIoU)', desc: '4-class visible mask (kurta / bottom / dupatta)', color: 'bg-emerald-500' },
-                    { step: '02', title: 'Clean Reference Extraction', desc: 'Garment-only cutout + cached target edit mask', color: 'bg-amber-500' },
-                    { step: '03', title: 'CatVTON & FASHN VTON v1.5', desc: 'Controlled 2D kurta transfer + blinded evaluation', color: 'bg-rose-500' },
+                    { step: '01', title: 'Gemini Canonical Garment Bridge', desc: 'De-occludes messy uploads into pure-white flat-lay kurtas', color: 'bg-indigo-500' },
+                    { step: '02', title: 'SegFormer-B2 Adapted (91.0% mIoU)', desc: '4-class visible mask (kurta / bottom / dupatta)', color: 'bg-emerald-500' },
+                    { step: '03', title: 'CatVTON & FASHN VTON v1.5', desc: 'Controlled 2D kurta transfer + blinded evaluation', color: 'bg-amber-500' },
+                    { step: '04', title: 'Modaya 3-View Studio Output', desc: 'Front Studio • 3/4 Editorial Angle • Back & Detail', color: 'bg-rose-500' },
                   ].map((item) => (
                     <div key={item.step} className="flex items-start gap-3.5 p-3 rounded-xl bg-white/5 border border-white/10">
                       <span className={`w-7 h-7 rounded-lg ${item.color} text-white text-xs font-bold flex items-center justify-center shrink-0`}>
