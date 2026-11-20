@@ -265,7 +265,7 @@ export default function App() {
               {/* Floating Garment Swatch Card */}
               <div
                 onClick={() => navigateToStudio('photo', 'emerald-zari')}
-                className="hidden sm:flex items-center gap-3 absolute -left-8 bottom-10 bg-white/95 backdrop-blur-md p-2.5 pr-4 rounded-2xl border border-slate-200/80 shadow-xl cursor-pointer hover:-translate-y-0.5 transition"
+                className="hidden sm:flex items-center gap-3 absolute -left-8 top-8 bg-white/95 backdrop-blur-md p-2.5 pr-4 rounded-2xl border border-slate-200/80 shadow-xl cursor-pointer hover:-translate-y-0.5 transition"
               >
                 <img
                   src="/brand/kurta_emerald.jpg"

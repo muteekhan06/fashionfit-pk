@@ -9,12 +9,6 @@ export default function handler(req, res) {
   return res.status(200).json({
     configured,
     key_pool_count: pool.length,
-    keys: pool.map((k) => ({
-      owner: k.owner,
-      id: k.id,
-      configured: true,
-      masked: `${k.key.slice(0, 10)}...${k.key.slice(-4)}`,
-    })),
     failover_enabled: pool.length > 1,
     model: process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image',
     stages: [

@@ -244,6 +244,7 @@ export default function StudioPage({
       const res = await fetch(directEndpoint('/vton'), { method: 'POST', body: fd })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || 'Try-on generation failed.')
+      setError('')
       setVtonResult(data)
       setGeneratedPoses({ front: data.result_image })
     } catch (err) {
@@ -756,8 +757,9 @@ export default function StudioPage({
             </div>
 
             <div className="lg:col-span-7 rounded-3xl bg-white border border-slate-200/80 p-5 shadow-xs">
-              <div className="relative rounded-2xl overflow-hidden bg-[#FAF8F5] flex items-center justify-center">
+              <div className="relative rounded-2xl overflow-hidden bg-[#FAF8F5] flex items-center justify-center min-h-[480px]">
                 <img
+                  key={activeDemoPoseObj.id}
                   src={activeDemoPoseObj.demoImage}
                   alt={activeDemoPoseObj.label}
                   className="w-full max-h-[600px] object-contain"
