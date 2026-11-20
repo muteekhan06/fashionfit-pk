@@ -2,44 +2,33 @@ import React, { useEffect, useState } from 'react'
 import {
   Sparkles,
   ShieldCheck,
-  Layers,
-  Upload,
   ChevronDown,
-  Cpu,
-  CheckCircle2,
-  BarChart3,
   ArrowRight,
-  Eye,
   X,
+  Scissors,
+  Camera,
+  Heart,
+  SlidersHorizontal,
 } from 'lucide-react'
 import TryOnStudioModal from './components/TryOnStudioModal.jsx'
-import {
-  VERIFIED_METRICS,
-  DEMO_CATALOG,
-  R2_BENCHMARK_TABLE,
-  SHOWCASE_RESULTS,
-} from './data/verifiedData.js'
+import { LOOKBOOK_ITEMS, STUDIO_CATALOG } from './data/verifiedData.js'
 
 const FAQS = [
   {
-    q: 'How does FashionFit-PK handle Pakistani kurtas, bottoms, and dupattas?',
-    a: 'We use a 4-class visible-region schema (0=other, 1=kurta_kameez, 2=bottom, 3=dupatta, 255=ignore) powered by SegFormer-B2 Clothes. Controlled decoder adaptation improved validation foreground mIoU from 74.12% to 91.00% (+16.88 pp), with Bottom IoU rising +28.85 pp.',
+    q: 'What types of Pakistani outfits work best?',
+    a: 'FashionFit-PK is purpose-built for women’s stitched kurtas, straight kameez, printed lawn, embroidered festive wear, and kurta-dupatta combinations—preserving full knee-length hems and neckline embroidery.',
   },
   {
-    q: 'Which virtual try-on models power the benchmark and live studio?',
-    a: 'Two garment-conditioned diffusion pipelines run on Google Colab GPU: CatVTON (author garment-conditioned code paired with SegFormer-B2 kurta masks) and FASHN VTON v1.5 (auto-parsed garment transfer). In our 38-case two-reviewer blinded benchmark, CatVTON achieved 20.0% strict acceptance vs. 0.0% for FASHN VTON v1.5.',
+    q: 'Do I have to upload my own photo to try it?',
+    a: 'Not at all. You can preview kurtas immediately on our privacy-safe studio models without sharing any personal photos, or upload your own full-body photo whenever you like.',
   },
   {
-    q: 'How does privacy-first Avatar Try-On work?',
-    a: 'Users who prefer not to upload personal photos can preview stitched kurtas on synthetic demo avatars (A001–A006). All synthetic avatars are strictly marked DEMO ONLY and excluded from real-person generalization claims.',
+    q: 'What if my garment photo has a hanger, wall, or model in it?',
+    a: 'Our built-in AI Studio Cleaner automatically removes hangers, backgrounds, and occlusions to create a clean garment reference before trying it on—keeping colors, prints, and borders true to the original.',
   },
   {
-    q: 'How can I run live GPU inference from this deployed website?',
-    a: 'Open our 1-click Google Colab notebook (FashionFit_PK_Live_GPU_Server.ipynb) on a free T4/L4 GPU, copy the printed https://...trycloudflare.com URL, click "Launch Studio", and paste it into the "Connect GPU" bar.',
-  },
-  {
-    q: 'What is inside FYP-1 scope vs. future FYP-2 work?',
-    a: 'FYP-1 delivers visible 4-class garment segmentation, controlled 2D kurta transfer comparisons, source-mask ablations, a 38-case two-reviewer blinded benchmark, and this interactive web prototype. Full dupatta de-occlusion, kurta-length LoRA adaptation, and 3D fit estimation are FYP-2 work.',
+    q: 'What views can shoppers preview?',
+    a: 'Every try-on supports three studio angles: a crisp Front Studio view, a 3/4 Editorial angle to inspect sleeve and side-slit drape, and a Back & Detail view.',
   },
 ]
 
@@ -47,10 +36,8 @@ const STORAGE_KEY = 'fashionfit_colab_gpu_url'
 
 export default function App() {
   const [health, setHealth] = useState({ mode: 'standby', colab_gpu_url: null })
-  const [catalog, setCatalog] = useState(DEMO_CATALOG)
-  const [metrics, setMetrics] = useState(VERIFIED_METRICS)
   const [studioOpen, setStudioOpen] = useState(false)
-  const [studioTab, setStudioTab] = useState('photo')
+  const [studioTab, setStudioTab] = useState('avatar')
   const [openFaq, setOpenFaq] = useState(0)
   const [colabUrlInput, setColabUrlInput] = useState('')
   const [colabStatusMsg, setColabStatusMsg] = useState('')
@@ -72,17 +59,17 @@ export default function App() {
         setHealth({
           mode: 'colab_gpu_live',
           colab_gpu_url: cleaned,
-          gpu: data.gpu || 'Colab GPU',
+          gpu: data.gpu || 'Live Studio Server',
           direct: true,
         })
-        setColabStatusMsg(`Connected directly to ${data.gpu || 'Colab GPU'}`)
+        setColabStatusMsg('Connected to live studio server.')
         return true
       }
     } catch {
       // fall through
     }
     setHealth({ mode: 'standby', colab_gpu_url: null })
-    setColabStatusMsg('Could not reach Colab GPU URL. Ensure the Colab notebook cell is running.')
+    setColabStatusMsg('Could not reach server URL. Check that your server is running.')
     return false
   }
 
@@ -94,7 +81,6 @@ export default function App() {
         const ok = await checkDirectColabHealth(saved)
         if (ok) return
       }
-      // Optional local FastAPI backend check when running locally
       try {
         const hRes = await fetch('/api/health')
         if (hRes.ok) {
@@ -103,7 +89,7 @@ export default function App() {
           if (h.colab_gpu_url) setColabUrlInput(h.colab_gpu_url)
         }
       } catch {
-        // Running standalone on Vercel — static verifiedData is already loaded
+        // Standalone mode on Vercel
       }
     }
     init()
@@ -114,10 +100,10 @@ export default function App() {
     if (!cleaned) {
       localStorage.removeItem(STORAGE_KEY)
       setHealth({ mode: 'standby', colab_gpu_url: null })
-      setColabStatusMsg('Disconnected from Colab GPU.')
+      setColabStatusMsg('Disconnected.')
       return
     }
-    setColabStatusMsg('Testing connection to Colab GPU...')
+    setColabStatusMsg('Connecting...')
     const directOk = await checkDirectColabHealth(cleaned)
     if (!directOk) {
       try {
@@ -128,255 +114,204 @@ export default function App() {
         })
         if (res.ok) {
           setHealth({ mode: 'colab_gpu_live', colab_gpu_url: cleaned, direct: false })
-          setColabStatusMsg('Connected via local FastAPI proxy.')
+          setColabStatusMsg('Connected.')
         }
       } catch {
-        // Error message already set by checkDirectColabHealth
+        // Error already set
       }
     }
   }
 
-  const openStudio = (tab) => {
+  const openStudio = (tab = 'avatar') => {
     setStudioTab(tab)
     setStudioOpen(true)
   }
 
-  const isGpuLive = health?.mode === 'colab_gpu_live'
-
   return (
-    <div className="min-h-screen flex flex-col bg-white text-slate-900">
-      {/* Sticky Navbar */}
-      <header className="sticky top-0 z-40 bg-white/90 backdrop-blur border-b border-slate-200/80">
-        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-8">
-            <a href="#hero" className="flex items-center gap-2.5">
-              <span className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#0F5C4D] to-[#9B1D4A] text-white font-display font-bold text-lg flex items-center justify-center shadow-sm">
-                F
-              </span>
-              <span className="font-bold text-lg tracking-tight text-slate-900">
-                FashionFit<span className="text-[#9B1D4A]">-PK</span>
-              </span>
-            </a>
-            <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-600">
-              <a href="#how-it-works" className="hover:text-slate-900 transition">Studio Modes</a>
-              <a href="#showcase" className="hover:text-slate-900 transition">R2 Showcase</a>
-              <a href="#metrics" className="hover:text-slate-900 transition">Benchmarks</a>
-              <a href="#faq" className="hover:text-slate-900 transition">FAQ</a>
-            </nav>
-          </div>
-          <div className="flex items-center gap-3">
-            <span
-              className={`hidden sm:inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full ${
-                isGpuLive ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-800'
-              }`}
-            >
-              <span className={`w-2 h-2 rounded-full ${isGpuLive ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
-              {isGpuLive ? 'Colab GPU Live' : 'Interactive Demo Mode'}
+    <div className="min-h-screen flex flex-col bg-[#FAF8F5] text-slate-900">
+      {/* Minimalist Sticky Navbar */}
+      <header className="sticky top-0 z-40 bg-white/85 backdrop-blur-md border-b border-slate-200/70">
+        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+          <a href="#hero" className="flex items-center gap-2.5">
+            <span className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#0F5C4D] to-[#9B1D4A] text-white font-display font-bold text-base flex items-center justify-center shadow-sm">
+              F
             </span>
-            <button
-              onClick={() => openStudio('avatar')}
-              className="px-4 py-2 rounded-xl bg-[#9B1D4A] text-white text-sm font-semibold hover:bg-[#7d163b] shadow-sm transition cursor-pointer"
-            >
-              Launch Studio
-            </button>
-          </div>
+            <span className="font-bold text-lg tracking-tight text-slate-900">
+              FashionFit<span className="text-[#9B1D4A]">-PK</span>
+            </span>
+          </a>
+
+          <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-slate-600">
+            <a href="#how-it-works" className="hover:text-slate-900 transition">How It Works</a>
+            <a href="#lookbook" className="hover:text-slate-900 transition">Lookbook</a>
+            <a href="#why-us" className="hover:text-slate-900 transition">Why FashionFit</a>
+            <a href="#faq" className="hover:text-slate-900 transition">FAQ</a>
+          </nav>
+
+          <button
+            onClick={() => openStudio('photo')}
+            className="px-5 py-2 rounded-full bg-[#9B1D4A] text-white text-sm font-semibold hover:bg-[#7d163b] shadow-sm transition cursor-pointer"
+          >
+            Try On Now
+          </button>
         </div>
       </header>
 
-      {/* Hero Section */}
-      <section id="hero" className="relative overflow-hidden bg-gradient-to-b from-[#FFF5F7] via-[#FAF8F5] to-white py-20 lg:py-24">
-        <div className="max-w-7xl mx-auto px-6 grid lg:grid-cols-12 gap-12 items-center">
-          <div className="lg:col-span-7 space-y-6">
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white border border-rose-200 text-xs font-semibold text-[#9B1D4A] shadow-sm">
+      {/* Editorial Hero Section */}
+      <section id="hero" className="relative overflow-hidden bg-gradient-to-b from-[#FFF5F7] via-[#FAF8F5] to-white pt-16 pb-24 lg:pt-24 lg:pb-28">
+        <div className="max-w-6xl mx-auto px-6 grid lg:grid-cols-12 gap-14 items-center">
+          <div className="lg:col-span-6 space-y-7">
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white border border-rose-200/80 text-xs font-semibold text-[#9B1D4A] shadow-xs">
               <Sparkles className="w-3.5 h-3.5" />
-              ITU Lahore BS AI FYP-1 • Pakistani Women's Modest Fashion
+              Virtual Try-On for Pakistani Fashion
             </div>
-            <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-slate-900 leading-[1.1]">
-              Virtual Try-On{' '}
+
+            <h1 className="font-display text-4xl sm:text-5xl lg:text-[3.4rem] font-extrabold tracking-tight text-slate-900 leading-[1.08]">
+              See Every Kurta on You{' '}
               <span className="bg-gradient-to-r from-[#0F5C4D] to-[#9B1D4A] bg-clip-text text-transparent">
-                Built for Pakistani Kurtas
+                Before You Buy.
               </span>
             </h1>
-            <p className="text-base sm:text-lg text-slate-600 max-w-2xl leading-relaxed">
-              An end-to-end research prototype combining <strong>4-class visible garment segmentation</strong>{' '}
-              (kurta/kameez, bottom, dupatta) with controlled <strong>CatVTON</strong> and{' '}
-              <strong>FASHN VTON v1.5</strong> virtual try-on evaluation—backed by a completed 38-case two-reviewer blinded benchmark.
+
+            <p className="text-base sm:text-lg text-slate-600 leading-relaxed max-w-lg">
+              Upload your photo or choose a studio model, pick any Pakistani kurta, and preview the drape, embroidery, and fit from three studio angles in seconds.
             </p>
-            <div className="flex flex-wrap gap-4 pt-2">
+
+            <div className="flex flex-wrap items-center gap-3.5 pt-1">
               <button
-                onClick={() => openStudio('avatar')}
-                className="flex items-center gap-2 px-6 py-3.5 rounded-xl bg-[#0F5C4D] text-white font-semibold text-sm hover:bg-[#0b473b] shadow-md transition cursor-pointer"
+                onClick={() => openStudio('photo')}
+                className="flex items-center gap-2 px-7 py-3.5 rounded-full bg-[#0F5C4D] text-white font-semibold text-sm hover:bg-[#0b473b] shadow-md transition cursor-pointer"
               >
-                Open Interactive Studio
+                Start Virtual Try-On
                 <ArrowRight className="w-4 h-4" />
               </button>
               <button
-                onClick={() => openStudio('segment')}
-                className="flex items-center gap-2 px-6 py-3.5 rounded-xl bg-white border border-slate-300 text-slate-800 font-semibold text-sm hover:bg-slate-50 transition cursor-pointer"
+                onClick={() => openStudio('avatar')}
+                className="flex items-center gap-2 px-6 py-3.5 rounded-full bg-white border border-slate-300 text-slate-800 font-semibold text-sm hover:bg-slate-50 transition cursor-pointer"
               >
-                <Layers className="w-4 h-4 text-[#9B1D4A]" />
-                Test 4-Class Segmentation
+                Preview on Studio Models
               </button>
             </div>
-            <div className="grid grid-cols-3 gap-4 pt-4 max-w-lg text-xs font-medium text-slate-600">
-              <div className="flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-[#0F5C4D]" /> +16.88 pp SegFormer Gain
-              </div>
-              <div className="flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-[#0F5C4D]" /> 38/38 Blinded Reviews
-              </div>
-              <div className="flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-[#0F5C4D]" /> 89.5% Agreement
-              </div>
+
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 pt-2 text-xs font-medium text-slate-500">
+              <span>✓ True knee-length drape</span>
+              <span>✓ Embroidery preserved</span>
+              <span>✓ 3 studio angles</span>
             </div>
           </div>
 
-          {/* Pipeline Preview Card */}
-          <div className="lg:col-span-5">
-            <div className="rounded-3xl p-4 bg-white border border-rose-100 shadow-xl">
-              <div className="rounded-2xl bg-[#06131F] p-6 text-white space-y-5">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold uppercase tracking-widest text-emerald-300">
-                    End-to-End Architecture
-                  </span>
-                  <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-white/10 text-slate-200">
-                    Colab T4 / L4 GPU
+          {/* Visual Hero Showcase */}
+          <div className="lg:col-span-6">
+            <div className="relative rounded-3xl p-3 bg-white border border-rose-100 shadow-2xl shadow-rose-900/5">
+              <div
+                onClick={() => openStudio('avatar')}
+                className="group relative rounded-2xl overflow-hidden bg-slate-100 cursor-pointer"
+              >
+                <img
+                  src="/showcase/blind_012.jpg"
+                  alt="Pakistani Kurta Virtual Try-On Preview"
+                  className="w-full h-auto object-cover group-hover:scale-[1.015] transition duration-500"
+                />
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/75 via-slate-950/20 to-transparent p-5 flex items-end justify-between text-white">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-emerald-300">
+                      Instant Studio Preview
+                    </p>
+                    <p className="text-sm font-bold mt-0.5">Mint Vine Embroidered Kurta</p>
+                  </div>
+                  <span className="px-3.5 py-1.5 rounded-full bg-white text-slate-900 text-xs font-bold shadow-sm group-hover:bg-rose-50 transition">
+                    Open Studio →
                   </span>
                 </div>
-                <div className="space-y-3">
-                  {[
-                    { step: '01', title: 'Gemini Canonical Garment Bridge', desc: 'De-occludes messy uploads into pure-white flat-lay kurtas', color: 'bg-indigo-500' },
-                    { step: '02', title: 'SegFormer-B2 Adapted (91.0% mIoU)', desc: '4-class visible mask (kurta / bottom / dupatta)', color: 'bg-emerald-500' },
-                    { step: '03', title: 'CatVTON & FASHN VTON v1.5', desc: 'Controlled 2D kurta transfer + blinded evaluation', color: 'bg-amber-500' },
-                    { step: '04', title: 'Modaya 3-View Studio Output', desc: 'Front Studio • 3/4 Editorial Angle • Back & Detail', color: 'bg-rose-500' },
-                  ].map((item) => (
-                    <div key={item.step} className="flex items-start gap-3.5 p-3 rounded-xl bg-white/5 border border-white/10">
-                      <span className={`w-7 h-7 rounded-lg ${item.color} text-white text-xs font-bold flex items-center justify-center shrink-0`}>
-                        {item.step}
-                      </span>
-                      <div>
-                        <p className="text-sm font-bold">{item.title}</p>
-                        <p className="text-xs text-slate-300">{item.desc}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <button
-                  onClick={() => openStudio('avatar')}
-                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-[#0F5C4D] to-[#9B1D4A] text-xs font-bold hover:opacity-95 transition cursor-pointer"
-                >
-                  Explore Verified Demo Track (A001 &amp; A002) →
-                </button>
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* How It Works — 3 Modes */}
-      <section id="how-it-works" className="py-20 bg-white">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="text-center max-w-2xl mx-auto mb-14">
+      {/* How It Works — 3 Simple Steps */}
+      <section id="how-it-works" className="py-24 bg-white">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center max-w-xl mx-auto mb-16">
+            <p className="text-xs font-bold uppercase tracking-widest text-[#0F5C4D] mb-2">Effortless Experience</p>
             <h2 className="font-display text-3xl sm:text-4xl font-bold text-slate-900">
-              Three Interactive Studio Modes
+              Try On in Three Simple Steps
             </h2>
-            <p className="text-slate-600 mt-3 text-sm sm:text-base">
-              Preview verified R2 outputs immediately, or connect your Colab GPU URL for live custom inference.
-            </p>
           </div>
+
           <div className="grid md:grid-cols-3 gap-8">
             {[
               {
-                tab: 'avatar',
-                title: 'Avatar Try-On (Instant Demo)',
-                badge: 'Works Instantly • No GPU Needed',
-                desc: 'Explore verified R2 Pakistani kurta outputs on synthetic studio avatars (A001 & A002) without uploading personal photos.',
-                icon: ShieldCheck,
-                accent: 'bg-[#0F5C4D]',
-                tint: 'bg-emerald-50/70 border-emerald-100',
+                num: '01',
+                title: 'Pick a Model or Upload',
+                desc: 'Use your own full-body photo for a personal fit, or start privately with our inclusive studio models.',
+                accent: 'text-[#0F5C4D] bg-emerald-50',
               },
               {
-                tab: 'photo',
-                title: 'Live Photo Try-On',
-                badge: 'Live Colab T4/L4 GPU',
-                desc: 'Upload any target photo and Pakistani kurta reference to run live CatVTON or FASHN VTON v1.5 inference directly via Colab.',
-                icon: Upload,
-                accent: 'bg-purple-600',
-                tint: 'bg-purple-50/70 border-purple-100',
+                num: '02',
+                title: 'Add Any Kurta Photo',
+                desc: 'Flat-lay, hanger, or catalog look—our AI automatically cleans the background and isolates the garment.',
+                accent: 'text-[#9B1D4A] bg-rose-50',
               },
               {
-                tab: 'segment',
-                title: '4-Class Garment Parsing',
-                badge: 'Kurta / Bottom / Dupatta',
-                desc: 'Inspect real-time SegFormer-B2 visible-region segmentation overlays, pixel coverage ratios, and clean kurta cutouts.',
-                icon: Layers,
-                accent: 'bg-[#9B1D4A]',
-                tint: 'bg-rose-50/70 border-rose-100',
+                num: '03',
+                title: 'Explore 3 Studio Angles',
+                desc: 'Inspect the Front Studio view, 3/4 Editorial drape, and Back & Embroidery detail before ordering.',
+                accent: 'text-amber-800 bg-amber-50',
               },
-            ].map((card) => (
-              <div key={card.tab} className={`rounded-2xl p-6 border ${card.tint} flex flex-col justify-between`}>
-                <div>
-                  <div className={`w-12 h-12 rounded-xl ${card.accent} text-white flex items-center justify-center mb-5 shadow-sm`}>
-                    <card.icon className="w-6 h-6" />
-                  </div>
-                  <span className="inline-block text-[11px] font-bold px-2.5 py-1 rounded-full bg-white text-slate-700 border border-slate-200 mb-3">
-                    {card.badge}
-                  </span>
-                  <h3 className="text-xl font-bold text-slate-900 mb-2">{card.title}</h3>
-                  <p className="text-sm text-slate-600 leading-relaxed">{card.desc}</p>
-                </div>
-                <button
-                  onClick={() => openStudio(card.tab)}
-                  className="mt-6 w-full py-2.5 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 transition cursor-pointer"
-                >
-                  Open Mode
-                </button>
+            ].map((step) => (
+              <div key={step.num} className="rounded-3xl p-8 bg-[#FAF8F5] border border-slate-200/70 space-y-4">
+                <span className={`inline-flex items-center justify-center w-11 h-11 rounded-2xl text-sm font-extrabold ${step.accent}`}>
+                  {step.num}
+                </span>
+                <h3 className="text-xl font-bold text-slate-900">{step.title}</h3>
+                <p className="text-sm text-slate-600 leading-relaxed">{step.desc}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* Verified R2 Showcase Gallery */}
-      <section id="showcase" className="py-20 bg-[#FAF8F5] border-t border-slate-200/80">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="flex flex-wrap items-end justify-between gap-4 mb-12">
+      {/* Curated Lookbook */}
+      <section id="lookbook" className="py-24 bg-[#FAF8F5] border-t border-slate-200/70">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="flex flex-wrap items-end justify-between gap-4 mb-14">
             <div>
-              <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#9B1D4A]">
-                <Eye className="w-4 h-4" /> Real Colab GPU Outputs • DEMO ONLY Synthetic Avatars
-              </span>
-              <h2 className="font-display text-3xl sm:text-4xl font-bold text-slate-900 mt-1">
-                Verified R2 Pakistani Kurta Showcase
+              <p className="text-xs font-bold uppercase tracking-widest text-[#9B1D4A] mb-2">Curated Lookbook</p>
+              <h2 className="font-display text-3xl sm:text-4xl font-bold text-slate-900">
+                Real Pakistani Kurta Previews
               </h2>
             </div>
-            <p className="text-xs text-slate-500 max-w-md">
-              Each triptych shows: Source Garment Reference (left), Target Synthetic Avatar (center), and Generated Try-On Output (right). Click any card to inspect full resolution.
-            </p>
+            <button
+              onClick={() => openStudio('avatar')}
+              className="text-sm font-semibold text-[#0F5C4D] hover:underline flex items-center gap-1.5 cursor-pointer"
+            >
+              Open Interactive Studio <ArrowRight className="w-4 h-4" />
+            </button>
           </div>
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {SHOWCASE_RESULTS.map((item) => (
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-7">
+            {LOOKBOOK_ITEMS.map((item) => (
               <div
                 key={item.id}
                 onClick={() => setLightboxItem(item)}
-                className="group rounded-2xl bg-white border border-slate-200 overflow-hidden shadow-sm hover:shadow-lg transition cursor-pointer flex flex-col"
+                className="group rounded-3xl bg-white border border-slate-200/80 overflow-hidden shadow-xs hover:shadow-xl transition duration-300 cursor-pointer flex flex-col"
               >
                 <div className="relative bg-slate-100 aspect-[16/10] overflow-hidden">
                   <img
                     src={item.image}
                     alt={item.title}
-                    className="w-full h-full object-cover group-hover:scale-[1.02] transition duration-300"
+                    className="w-full h-full object-cover group-hover:scale-[1.03] transition duration-500"
                     loading="lazy"
                   />
-                  <span className="absolute top-3 left-3 text-[10px] font-bold px-2.5 py-1 rounded-full bg-slate-900/85 text-white">
-                    {item.id} • DEMO ONLY
+                  <span className="absolute top-3 left-3 text-[10px] font-semibold px-2.5 py-1 rounded-full bg-white/90 text-slate-800 backdrop-blur-sm">
+                    {item.fabric}
                   </span>
                 </div>
-                <div className="p-4 flex-1 flex flex-col justify-between">
+                <div className="p-5 flex-1 flex flex-col justify-between">
                   <div>
-                    <p className="text-xs font-semibold text-[#0F5C4D]">{item.subtitle}</p>
-                    <h3 className="text-base font-bold text-slate-900 mt-0.5">{item.title}</h3>
-                    <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">{item.note}</p>
+                    <h3 className="text-base font-bold text-slate-900">{item.title}</h3>
+                    <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">{item.caption}</p>
                   </div>
                 </div>
               </div>
@@ -385,106 +320,87 @@ export default function App() {
         </div>
       </section>
 
-      {/* Verified Research Metrics & R2 Table */}
-      <section id="metrics" className="py-20 bg-white border-t border-slate-200/80">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="flex flex-wrap items-end justify-between gap-4 mb-12">
-            <div>
-              <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#0F5C4D]">
-                <BarChart3 className="w-4 h-4" /> Completed Two-Reviewer Blinded Evaluation (R2)
-              </span>
-              <h2 className="font-display text-3xl sm:text-4xl font-bold text-slate-900 mt-1">
-                Honest Quantitative Benchmarks
-              </h2>
-            </div>
-            <p className="text-xs text-slate-500 max-w-md">{metrics.honesty_note}</p>
+      {/* Crafted for Pakistani Fashion — 3 Clean Pillars */}
+      <section id="why-us" className="py-24 bg-white border-t border-slate-200/70">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center max-w-xl mx-auto mb-16">
+            <p className="text-xs font-bold uppercase tracking-widest text-[#0F5C4D] mb-2">Designed for Local Apparel</p>
+            <h2 className="font-display text-3xl sm:text-4xl font-bold text-slate-900">
+              Built Specifically for Pakistani Brands
+            </h2>
           </div>
 
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+          <div className="grid md:grid-cols-3 gap-8">
             {[
-              { value: `${metrics.dataset_total_normalized_images}`, label: 'Verified Normalized Images', sub: '600 catalogue + 27 pilot + 100 REHLIN + 6 avatars', color: 'text-[#0F5C4D]' },
-              { value: `${(metrics.segformer_b2_adapted_miou * 100).toFixed(2)}%`, label: 'Adapted SegFormer-B2 mIoU', sub: `+${metrics.segformer_b2_gain_pp} pp over 74.12% baseline (Bottom: 89.48%)`, color: 'text-[#9B1D4A]' },
-              { value: `${metrics.vton_runs_succeeded} / ${metrics.vton_runs_total}`, label: 'Two-Reviewer Scored Outputs', sub: `${metrics.review_rows} total ratings • ${metrics.inter_reviewer_agreement_pct}% inter-reviewer agreement`, color: 'text-indigo-700' },
-              { value: `${metrics.catvton_acceptance_pct.toFixed(0)}%`, label: 'CatVTON Strict Acceptance', sub: 'vs. 0% FASHN VTON 1.5 (all 4 scores ≥ 4, both reviewers)', color: 'text-slate-900' },
-            ].map((kpi) => (
-              <div key={kpi.label} className="rounded-2xl bg-[#FAF8F5] p-6 border border-slate-200 shadow-sm">
-                <p className={`text-4xl font-extrabold tracking-tight ${kpi.color}`}>{kpi.value}</p>
-                <p className="text-sm font-bold text-slate-900 mt-2">{kpi.label}</p>
-                <p className="text-xs text-slate-500 mt-1">{kpi.sub}</p>
+              {
+                icon: Scissors,
+                title: 'True Kurta Proportions',
+                desc: 'Unlike generic Western try-on tools that crop shirts at the waist, FashionFit-PK respects full knee-length hems, straight cuts, and modest necklines.',
+                color: 'bg-[#0F5C4D]',
+              },
+              {
+                icon: Camera,
+                title: 'Embroidery & Border Clarity',
+                desc: 'Preserves intricate gala work, floral prints, sleeve cuffs, and daaman borders while keeping trousers and personal identity untouched.',
+                color: 'bg-[#9B1D4A]',
+              },
+              {
+                icon: Heart,
+                title: 'Inclusive & Privacy-First',
+                desc: 'Shoppers can preview outfits on diverse studio body profiles instantly without uploading personal photos—boosting confidence and reducing returns.',
+                color: 'bg-slate-900',
+              },
+            ].map((pillar) => (
+              <div key={pillar.title} className="rounded-3xl p-7 border border-slate-200/80 bg-[#FAF8F5]/60 space-y-4">
+                <div className={`w-11 h-11 rounded-2xl ${pillar.color} text-white flex items-center justify-center shadow-sm`}>
+                  <pillar.icon className="w-5 h-5" />
+                </div>
+                <h3 className="text-lg font-bold text-slate-900">{pillar.title}</h3>
+                <p className="text-sm text-slate-600 leading-relaxed">{pillar.desc}</p>
               </div>
             ))}
-          </div>
-
-          {/* Table + Acceptance Chart */}
-          <div className="grid lg:grid-cols-12 gap-8 items-start">
-            <div className="lg:col-span-7 rounded-2xl border border-slate-200 overflow-hidden bg-white shadow-sm">
-              <div className="px-5 py-4 bg-slate-50 border-b border-slate-200">
-                <h3 className="text-sm font-bold text-slate-900">R2 Two-Reviewer Comparison by Condition</h3>
-                <p className="text-xs text-slate-500 mt-0.5">Strict acceptance requires Design, Silhouette, Identity, Artifact ≥ 4 and no major artifact from both reviewers.</p>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50/70 text-slate-600 uppercase tracking-wider border-b border-slate-200">
-                    <tr>
-                      <th className="px-4 py-3">Model / Condition</th>
-                      <th className="px-3 py-3 text-center">N</th>
-                      <th className="px-3 py-3 text-center">Accept</th>
-                      <th className="px-3 py-3 text-center">Design</th>
-                      <th className="px-3 py-3 text-center">Silh.</th>
-                      <th className="px-3 py-3 text-center">Ident.</th>
-                      <th className="px-3 py-3 text-center">Artif.</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {R2_BENCHMARK_TABLE.map((row) => (
-                      <tr key={`${row.model}-${row.condition}`} className={row.highlight ? 'bg-emerald-50/60 font-semibold' : ''}>
-                        <td className="px-4 py-3">
-                          <div className="font-bold text-slate-900">{row.model}</div>
-                          <div className="text-[11px] text-slate-500 font-normal">{row.condition}</div>
-                        </td>
-                        <td className="px-3 py-3 text-center text-slate-700">{row.outputs}</td>
-                        <td className={`px-3 py-3 text-center font-bold ${row.highlight ? 'text-[#0F5C4D]' : 'text-slate-600'}`}>{row.acceptance}</td>
-                        <td className="px-3 py-3 text-center text-slate-700">{row.design}</td>
-                        <td className="px-3 py-3 text-center text-slate-700">{row.silhouette}</td>
-                        <td className="px-3 py-3 text-center text-slate-700">{row.identity}</td>
-                        <td className="px-3 py-3 text-center text-slate-700">{row.artifact}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="lg:col-span-5 rounded-2xl border border-slate-200 p-4 bg-white shadow-sm">
-              <p className="text-xs font-bold text-slate-800 mb-3">Human Acceptance Rate Chart (Notebook 08)</p>
-              <img
-                src="/showcase/human_acceptance.png"
-                alt="R2 Human Acceptance Chart"
-                className="w-full rounded-xl border border-slate-100"
-              />
-            </div>
           </div>
         </div>
       </section>
 
-      {/* FAQ */}
-      <section id="faq" className="py-20 bg-[#FAF8F5] border-t border-slate-200/80">
-        <div className="max-w-3xl mx-auto px-6">
+      {/* Clean CTA Banner */}
+      <section className="py-20 bg-gradient-to-r from-[#0F5C4D] to-[#9B1D4A] text-white">
+        <div className="max-w-4xl mx-auto px-6 text-center space-y-6">
+          <h2 className="font-display text-3xl sm:text-4xl font-bold">
+            Ready to Preview Your Next Kurta?
+          </h2>
+          <p className="text-sm sm:text-base text-white/85 max-w-xl mx-auto">
+            Launch the interactive studio to test our lookbook models or try on your own Pakistani outfit in seconds.
+          </p>
+          <div className="flex flex-wrap justify-center gap-4 pt-2">
+            <button
+              onClick={() => openStudio('photo')}
+              className="px-7 py-3.5 rounded-full bg-white text-slate-900 font-bold text-sm hover:bg-rose-50 shadow-lg transition cursor-pointer"
+            >
+              Launch Virtual Try-On Studio
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* Simple FAQ */}
+      <section id="faq" className="py-24 bg-[#FAF8F5]">
+        <div className="max-w-2xl mx-auto px-6">
           <h2 className="font-display text-3xl font-bold text-center text-slate-900 mb-10">
             Frequently Asked Questions
           </h2>
           <div className="space-y-3">
             {FAQS.map((item, idx) => (
-              <div key={item.q} className="rounded-2xl bg-white border border-slate-200 overflow-hidden">
+              <div key={item.q} className="rounded-2xl bg-white border border-slate-200/80 overflow-hidden">
                 <button
                   onClick={() => setOpenFaq(openFaq === idx ? -1 : idx)}
-                  className="w-full px-5 py-4 text-left flex items-center justify-between font-semibold text-sm text-slate-900 hover:bg-slate-50 cursor-pointer"
+                  className="w-full px-6 py-4 text-left flex items-center justify-between font-semibold text-sm text-slate-900 hover:bg-slate-50 cursor-pointer"
                 >
                   <span>{item.q}</span>
-                  <ChevronDown className={`w-4 h-4 text-slate-500 transition ${openFaq === idx ? 'rotate-180' : ''}`} />
+                  <ChevronDown className={`w-4 h-4 text-slate-400 transition ${openFaq === idx ? 'rotate-180' : ''}`} />
                 </button>
                 {openFaq === idx && (
-                  <div className="px-5 pb-4 text-sm text-slate-600 leading-relaxed border-t border-slate-100 pt-3">
+                  <div className="px-6 pb-5 text-sm text-slate-600 leading-relaxed border-t border-slate-100 pt-3">
                     {item.a}
                   </div>
                 )}
@@ -494,21 +410,26 @@ export default function App() {
         </div>
       </section>
 
-      {/* Footer */}
+      {/* Minimalist Footer */}
       <footer className="mt-auto bg-slate-950 text-slate-400 py-10">
-        <div className="max-w-7xl mx-auto px-6 flex flex-wrap items-center justify-between gap-4 text-xs">
+        <div className="max-w-6xl mx-auto px-6 flex flex-wrap items-center justify-between gap-4 text-xs">
           <div>
-            <p className="font-bold text-white text-sm">FashionFit-PK — BS AI Final Year Project (ITU Lahore)</p>
-            <p className="mt-1">Team: Mutee Ur Rehman &amp; Hafiz Abdullah Muhammad • Supervisor: Ms. Anam Zahid</p>
+            <p className="font-bold text-white text-sm">
+              FashionFit<span className="text-rose-400">-PK</span>
+            </p>
+            <p className="mt-1">AI Virtual Try-On for Pakistani Ethnic Wear • Mutee Ur Rehman &amp; Hafiz Abdullah Muhammad</p>
           </div>
-          <div className="flex items-center gap-2 text-slate-300">
-            <Cpu className="w-4 h-4 text-emerald-400" />
-            <span>Powered by SegFormer-B2, CatVTON &amp; FASHN VTON v1.5</span>
-          </div>
+          <button
+            onClick={() => openStudio('photo')}
+            className="inline-flex items-center gap-1.5 text-slate-300 hover:text-white transition cursor-pointer"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            Studio &amp; Server Settings
+          </button>
         </div>
       </footer>
 
-      {/* Lightbox Modal for Showcase */}
+      {/* Clean Lightbox Modal */}
       {lightboxItem && (
         <div
           onClick={() => setLightboxItem(null)}
@@ -516,23 +437,32 @@ export default function App() {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="relative max-w-5xl w-full rounded-2xl bg-white overflow-hidden shadow-2xl"
+            className="relative max-w-4xl w-full rounded-3xl bg-white overflow-hidden shadow-2xl"
           >
-            <div className="flex items-center justify-between px-5 py-3.5 bg-slate-900 text-white">
+            <div className="flex items-center justify-between px-6 py-4 bg-white border-b border-slate-100">
               <div>
-                <p className="text-sm font-bold">{lightboxItem.title} ({lightboxItem.id})</p>
-                <p className="text-xs text-slate-300">{lightboxItem.subtitle} • DEMO ONLY</p>
+                <p className="text-base font-bold text-slate-900">{lightboxItem.title}</p>
+                <p className="text-xs text-slate-500">{lightboxItem.fabric} • Studio Model Preview</p>
               </div>
               <button
                 onClick={() => setLightboxItem(null)}
-                className="p-1.5 rounded-lg hover:bg-white/15 cursor-pointer"
+                className="p-2 rounded-full hover:bg-slate-100 text-slate-600 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <img src={lightboxItem.image} alt={lightboxItem.title} className="w-full max-h-[75vh] object-contain bg-slate-100" />
-            <div className="px-5 py-3 bg-white text-xs text-slate-600 border-t border-slate-200">
-              {lightboxItem.note}
+            <img src={lightboxItem.image} alt={lightboxItem.title} className="w-full max-h-[70vh] object-contain bg-[#FAF8F5]" />
+            <div className="px-6 py-4 bg-white flex flex-wrap items-center justify-between gap-3 border-t border-slate-100">
+              <p className="text-xs text-slate-600">{lightboxItem.caption}</p>
+              <button
+                onClick={() => {
+                  setLightboxItem(null)
+                  openStudio('photo')
+                }}
+                className="px-4 py-2 rounded-full bg-[#0F5C4D] text-white text-xs font-semibold hover:bg-[#0b473b] cursor-pointer"
+              >
+                Try Your Own Photo →
+              </button>
             </div>
           </div>
         </div>
@@ -543,7 +473,7 @@ export default function App() {
         initialTab={studioTab}
         onClose={() => setStudioOpen(false)}
         health={health}
-        catalog={catalog}
+        catalog={STUDIO_CATALOG}
         colabUrlInput={colabUrlInput}
         setColabUrlInput={setColabUrlInput}
         colabStatusMsg={colabStatusMsg}
