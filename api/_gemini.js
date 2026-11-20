@@ -1,28 +1,37 @@
 /**
  * FashionFit-PK: Multi-Key Gemini Failover Engine
- * Dual-Key High Availability: Mutee Ur Rehman & Hafiz Abdullah Muhammad
+ * Multi-Key High Availability Pool:
+ *  1. Mutee Ur Rehman (Personal / Primary)
+ *  2. Mutee's Student ITU Account
+ *  3. Hafiz Abdullah Muhammad
  *
- * Automatically monitors API quota & rate limits (HTTP 429 / RESOURCE_EXHAUSTED).
- * If Mutee's API key reaches its quota limit, it immediately and seamlessly fails over
- * to Hafiz's API key without interrupting the user's try-on session.
+ * Automatically monitors API quota & rate limits (HTTP 429 / 403 / RESOURCE_EXHAUSTED).
+ * If any API key reaches its quota limit or is temporarily restricted, it immediately
+ * and seamlessly fails over to the next available key without interrupting the user's try-on session.
  */
 
 export function getGeminiKeyPool() {
   const keys = []
 
-  // 1. Mutee's API Key (Primary)
+  // 1. Mutee's Primary Key
   const muteeKey = (process.env.GEMINI_API_KEY_MUTEE || process.env.GEMINI_API_KEY || '').trim()
   if (muteeKey && muteeKey !== 'YOUR_GEMINI_API_KEY_HERE') {
-    keys.push({ owner: "Mutee Ur Rehman", id: 'mutee', key: muteeKey })
+    keys.push({ owner: "Mutee Ur Rehman (Primary)", id: 'mutee', key: muteeKey })
   }
 
-  // 2. Hafiz's API Key (Secondary / Auto-Failover)
+  // 2. Mutee's Student ITU Account Key
+  const muteeItuKey = (process.env.GEMINI_API_KEY_MUTEE_ITU || '').trim()
+  if (muteeItuKey && muteeItuKey !== 'YOUR_GEMINI_API_KEY_HERE' && !keys.some(k => k.key === muteeItuKey)) {
+    keys.push({ owner: "Mutee's Student ITU Account", id: 'mutee_itu', key: muteeItuKey })
+  }
+
+  // 3. Hafiz's Key
   const hafizKey = (process.env.GEMINI_API_KEY_HAFIZ || '').trim()
-  if (hafizKey && hafizKey !== 'YOUR_GEMINI_API_KEY_HERE' && hafizKey !== muteeKey) {
+  if (hafizKey && hafizKey !== 'YOUR_GEMINI_API_KEY_HERE' && !keys.some(k => k.key === hafizKey)) {
     keys.push({ owner: "Hafiz Abdullah Muhammad", id: 'hafiz', key: hafizKey })
   }
 
-  // 3. Fallback to comma-separated GEMINI_API_KEYS if provided
+  // 4. Fallback to comma-separated GEMINI_API_KEYS if provided
   if (process.env.GEMINI_API_KEYS) {
     const extras = process.env.GEMINI_API_KEYS.split(',').map((k) => k.trim()).filter(Boolean)
     extras.forEach((k, idx) => {
@@ -42,7 +51,7 @@ export async function callGeminiWithFailover({ prompt, mimeType, rawData, genera
       ok: false,
       status: 503,
       code: 'GEMINI_NO_KEYS_CONFIGURED',
-      error: 'No valid Gemini API keys configured. Set GEMINI_API_KEY_MUTEE and GEMINI_API_KEY_HAFIZ.',
+      error: 'No valid Gemini API keys configured. Set GEMINI_API_KEY_MUTEE, GEMINI_API_KEY_MUTEE_ITU, or GEMINI_API_KEY_HAFIZ.',
     }
   }
 
@@ -82,26 +91,28 @@ export async function callGeminiWithFailover({ prompt, mimeType, rawData, genera
 
       const data = await response.json()
 
-      // Check for rate limit / quota exhaustion (HTTP 429 or RESOURCE_EXHAUSTED)
-      const isQuotaError =
+      // Check for rate limit, quota exhaustion, or free tier restriction
+      const isQuotaOrLimitError =
         response.status === 429 ||
+        response.status === 403 ||
         data?.error?.code === 429 ||
+        data?.error?.code === 403 ||
         data?.error?.status === 'RESOURCE_EXHAUSTED' ||
-        String(data?.error?.message || '').toLowerCase().includes('quota')
+        String(data?.error?.message || '').toLowerCase().includes('quota') ||
+        String(data?.error?.message || '').toLowerCase().includes('free tier')
 
-      if (isQuotaError) {
-        console.warn(`[Gemini Engine] Quota limit reached on ${current.owner}'s key. Auto-switching...`)
+      if (isQuotaOrLimitError) {
+        console.warn(`[Gemini Engine] Limit/quota hit on ${current.owner}'s key (${response.status}). Auto-switching to next key...`)
         errors.push({
           owner: current.owner,
-          status: 429,
-          message: data?.error?.message || 'Daily quota limit reached on Free Tier.',
+          status: response.status,
+          message: data?.error?.message || 'Quota or Tier limit hit.',
         })
-        // Continue loop to failover to next key!
+        // Seamlessly continue to the next key!
         continue
       }
 
       if (!response.ok) {
-        // If not a quota error (e.g. invalid parameter or server error), record and try next key if available
         errors.push({
           owner: current.owner,
           status: response.status,
@@ -142,14 +153,11 @@ export async function callGeminiWithFailover({ prompt, mimeType, rawData, genera
   }
 
   // If all keys in the pool were exhausted:
-  const allQuota = errors.every((e) => e.status === 429)
   return {
     ok: false,
     status: 429,
-    code: allQuota ? 'ALL_GEMINI_QUOTAS_EXHAUSTED' : 'ALL_GEMINI_KEYS_FAILED',
-    error: allQuota
-      ? "Both Mutee's and Hafiz's Gemini API keys have reached their daily Free Tier quota limit. Google AI Studio resets free quotas automatically every 24 hours (~13 hours remaining), or you can link a Google Cloud billing account for unlimited requests."
-      : 'All configured Gemini API keys failed to complete the request.',
+    code: 'ALL_GEMINI_KEYS_EXHAUSTED',
+    error: 'All configured Gemini API keys (Mutee Primary, Mutee Student ITU, Hafiz) have reached their current capacity. They will automatically reset shortly, or you can attach a billing account for unlimited requests.',
     details: errors,
   }
 }
