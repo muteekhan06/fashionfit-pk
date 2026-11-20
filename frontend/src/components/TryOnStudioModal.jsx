@@ -34,6 +34,7 @@ export default function TryOnStudioModal({
   const [selectedProduct, setSelectedProduct] = useState('DEMO_001')
   const [segFile, setSegFile] = useState(null)
   const [segPreview, setSegPreview] = useState(null)
+  const [segVariant, setSegVariant] = useState('adapted')
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -115,6 +116,7 @@ export default function TryOnStudioModal({
     try {
       const fd = new FormData()
       fd.append('image', segFile)
+      fd.append('seg_variant', segVariant)
       const res = await fetch(directEndpoint('/segment'), { method: 'POST', body: fd })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || 'Segmentation failed')
@@ -484,7 +486,15 @@ export default function TryOnStudioModal({
                     <span className="font-semibold text-slate-600">0: other</span>.
                   </p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <select
+                    value={segVariant}
+                    onChange={(e) => setSegVariant(e.target.value)}
+                    className="text-xs px-3 py-2 rounded-lg border border-slate-300 bg-white font-medium text-slate-800"
+                  >
+                    <option value="adapted">Adapted SegFormer-B2 (R2 • 91.0% mIoU)</option>
+                    <option value="baseline">Baseline SegFormer-B2 (Western • 74.1% mIoU)</option>
+                  </select>
                   <label className="cursor-pointer text-xs font-semibold px-4 py-2 rounded-lg bg-white border border-slate-300 hover:bg-slate-100">
                     Upload Outfit Photo
                     <input
@@ -506,25 +516,38 @@ export default function TryOnStudioModal({
               </div>
 
               {segResult ? (
-                <div className="grid md:grid-cols-3 gap-4">
-                  <div className="rounded-xl bg-slate-900 p-3 text-white">
-                    <p className="text-xs font-semibold text-slate-300 mb-2">Source Outfit</p>
-                    <img src={segPreview} alt="Source" className="w-full h-64 object-contain rounded" />
+                <div className="space-y-4">
+                  <div className="grid md:grid-cols-3 gap-4">
+                    <div className="rounded-xl bg-slate-900 p-3 text-white">
+                      <p className="text-xs font-semibold text-slate-300 mb-2">Source Outfit</p>
+                      <img src={segPreview} alt="Source" className="w-full h-64 object-contain rounded" />
+                    </div>
+                    <div className="rounded-xl bg-slate-900 p-3 text-white">
+                      <p className="text-xs font-semibold text-emerald-300 mb-2">
+                        4-Class Overlay ({segResult.seconds}s)
+                      </p>
+                      <img src={segResult.overlay_image} alt="Overlay" className="w-full h-64 object-contain rounded" />
+                    </div>
+                    <div className="rounded-xl bg-slate-900 p-3 text-white">
+                      <p className="text-xs font-semibold text-amber-300 mb-2">Extracted Kurta Cutout</p>
+                      <img
+                        src={segResult.kurta_cutout_image}
+                        alt="Cutout"
+                        className="w-full h-64 object-contain rounded bg-white"
+                      />
+                    </div>
                   </div>
-                  <div className="rounded-xl bg-slate-900 p-3 text-white">
-                    <p className="text-xs font-semibold text-emerald-300 mb-2">
-                      4-Class Overlay ({segResult.seconds}s)
-                    </p>
-                    <img src={segResult.overlay_image} alt="Overlay" className="w-full h-64 object-contain rounded" />
-                  </div>
-                  <div className="rounded-xl bg-slate-900 p-3 text-white">
-                    <p className="text-xs font-semibold text-amber-300 mb-2">Extracted Kurta Cutout</p>
-                    <img
-                      src={segResult.kurta_cutout_image}
-                      alt="Cutout"
-                      className="w-full h-64 object-contain rounded bg-white"
-                    />
-                  </div>
+                  {segResult.class_coverage_pct && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
+                      <span className="font-bold text-slate-700">{segResult.model_id}</span>
+                      <div className="flex flex-wrap gap-3 font-semibold">
+                        <span className="text-emerald-700">Kurta: {segResult.class_coverage_pct.kurta_kameez}%</span>
+                        <span className="text-blue-700">Bottom: {segResult.class_coverage_pct.bottom}%</span>
+                        <span className="text-amber-700">Dupatta: {segResult.class_coverage_pct.dupatta}%</span>
+                        <span className="text-slate-500">Other: {segResult.class_coverage_pct.other}%</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 segPreview && (

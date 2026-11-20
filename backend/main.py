@@ -244,6 +244,7 @@ async def run_vton(
 @app.post("/api/segment")
 async def run_segmentation(
     image: UploadFile = File(...),
+    seg_variant: str = Form("adapted"),
 ) -> Any:
     colab_url = STATE["colab_gpu_url"]
     if not colab_url:
@@ -259,7 +260,7 @@ async def run_segmentation(
 
     raw = _forward_multipart(
         f"{colab_url}/segment",
-        fields={},
+        fields={"seg_variant": seg_variant},
         files=[("image", image.filename or "outfit.jpg", img_bytes, image.content_type or "image/jpeg")],
     )
     return json.loads(raw.decode("utf-8"))
