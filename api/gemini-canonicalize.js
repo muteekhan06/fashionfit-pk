@@ -9,13 +9,13 @@
  * Requires env var: GEMINI_API_KEY
  */
 
-const CANONICAL_PROMPT = `You are a precision e-commerce fashion studio retoucher specializing in Pakistani women's ethnic wear.
-Transform the garment in this input photo into a single, crisp, symmetrical, front-facing flat-lay studio product photograph of ONLY the Pakistani kurta/kameez on a pure solid white background (#FFFFFF).
+const CANONICAL_PROMPT = `You are an elite e-commerce fashion studio retoucher and garment reconstruction specialist for Pakistani women's ethnic wear.
+Transform this garment input—even if it is a minimal swatch, folded cloth, hanging kurta, wrinkled photo, or partially occluded model-worn shot—into a single, 100% complete, symmetrical, front-facing flat-lay studio product photograph of ONLY the Pakistani knee-length kurta/kameez on a pure solid white background (#FFFFFF).
 Strict requirements:
-1. Preserve the exact fabric color, weave, print pattern, neckline placket (gala) embroidery, sleeve cuff embroidery, and lower hemline (daaman) border with 100% fidelity.
-2. Reconstruct any regions that were occluded by arms, hair, a draped dupatta, or folded fabric so the complete knee-length kurta silhouette and both full sleeves are cleanly visible.
-3. Remove completely: any human model, hands, face, trousers/shalwar, dupatta, wooden hanger, wall, plants, floor rug, shadows, watermarks, or text.
-4. Center the garment symmetrically in a 3:4 vertical frame with even, shadowless overhead studio lighting.`
+1. Preserve the exact fabric color, weave, print motif, vertical neckline placket (gala) embroidery, sleeve cuff borders, and lower hemline (daaman) embroidery with extreme fidelity.
+2. If the input is minimal, folded, cropped, or occluded by arms/dupatta/pose, faithfully complete and reconstruct the full knee-length straight kurta silhouette and both symmetrical full-length sleeves matching the exact fabric and design language of the input.
+3. Completely remove any human model, hands, face, trousers/shalwar, dupatta, wooden hanger, wall, plants, floor rug, shadows, watermarks, or text.
+4. Center the finished kurta cleanly in a 3:4 vertical frame with crisp, shadowless overhead studio lighting so downstream Virtual Try-On transfers it with near-100% accuracy.`
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
