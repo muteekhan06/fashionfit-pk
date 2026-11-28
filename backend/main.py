@@ -209,6 +209,9 @@ async def run_vton(
     model_id: str = Form("fashn_vton_1_5"),
     category: str = Form("tops"),
     garment_photo_type: str = Form("flat-lay"),
+    tryon_mode: str = Form("upper_body"),
+    person_age_group: str = Form("adult"),
+    preserve_dupatta: str = Form("true"),
     seed: int = Form(42),
 ) -> Any:
     colab_url = STATE["colab_gpu_url"]
@@ -231,6 +234,9 @@ async def run_vton(
             "model_id": model_id,
             "category": category,
             "garment_photo_type": garment_photo_type,
+            "tryon_mode": tryon_mode,
+            "person_age_group": person_age_group,
+            "preserve_dupatta": preserve_dupatta,
             "seed": str(seed),
         },
         files=[

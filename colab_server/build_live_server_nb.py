@@ -100,6 +100,35 @@ async def segment(image: UploadFile = File(...)):
         "peak_vram_mb": out["peak_vram_mb"],
     }
 
+def build_mode_mask(seg_map: np.ndarray, tryon_mode: str = "upper_body", preserve_dupatta: bool = True) -> np.ndarray:
+    h, w = seg_map.shape
+    upper = (seg_map == 1).astype(np.uint8)
+    lower = (seg_map == 2).astype(np.uint8)
+    dupatta = (seg_map == 3)
+    if tryon_mode == "flared_lehenga":
+        combined = np.clip(upper + lower, 0, 1).astype(np.uint8)
+        lower_rows = np.where(lower.any(axis=1))[0]
+        if len(lower_rows) > 0:
+            y_start, y_end = int(lower_rows[0]), int(lower_rows[-1])
+            span = max(1, y_end - y_start)
+            max_pad = max(1, int(w * 0.18))
+            flared = combined.copy()
+            for y in range(y_start, y_end + 1):
+                xs = np.where(combined[y] > 0)[0]
+                if len(xs) == 0:
+                    continue
+                pad = int(round(max_pad * ((y - y_start) / span)))
+                flared[y, max(0, int(xs[0]) - pad) : min(w - 1, int(xs[-1]) + pad) + 1] = 1
+            combined = flared
+        mask = combined
+    elif tryon_mode in ("full_outfit", "kids_ethnic", "cross_age"):
+        mask = np.clip(upper + lower, 0, 1).astype(np.uint8) if lower.any() else upper
+    else:
+        mask = upper
+    if preserve_dupatta:
+        mask[dupatta] = 0
+    return (mask * 255).astype(np.uint8)
+
 @app.post("/vton")
 async def vton(
     person_image: UploadFile = File(...),
@@ -107,26 +136,35 @@ async def vton(
     model_id: str = Form("fashn_vton_1_5"),
     category: str = Form("tops"),
     garment_photo_type: str = Form("flat-lay"),
+    tryon_mode: str = Form("upper_body"),
+    person_age_group: str = Form("adult"),
+    preserve_dupatta: str = Form("true"),
     seed: int = Form(42),
 ):
     p_img = Image.open(io.BytesIO(await person_image.read())).convert("RGB")
     g_img = Image.open(io.BytesIO(await garment_image.read())).convert("RGB")
+    keep_dupatta = str(preserve_dupatta).lower() not in ("false", "0", "no")
 
     if model_id == "catvton":
         seg = SegFormerClothesAdapter(); seg.load()
-        m = ((seg.predict(p_img)["mask"] == 1).astype(np.uint8) * 255)
+        seg_map = seg.predict(p_img)["mask"]
+        m = build_mode_mask(seg_map, tryon_mode=tryon_mode, preserve_dupatta=keep_dupatta)
         t_mask = Image.fromarray(m, mode="L")
         del seg; gc.collect(); torch.cuda.empty_cache()
         adapter = CatVtonAdapter(); adapter.load()
         res = adapter.run_tryon(p_img, g_img, target_mask=t_mask, seed=seed)
     else:
+        eff_cat = "one-pieces" if tryon_mode == "flared_lehenga" else category
         adapter = FashnVtonAdapter(); adapter.load()
-        res = adapter.run_tryon(p_img, g_img, category=category, garment_photo_type=garment_photo_type, seed=seed)
+        res = adapter.run_tryon(p_img, g_img, category=eff_cat, garment_photo_type=garment_photo_type, seed=seed)
 
     b64 = img_to_b64(res["image"])
     del adapter; gc.collect(); torch.cuda.empty_cache()
     return {
         "model_id": model_id,
+        "engine": "colab_gpu_live",
+        "tryon_mode": tryon_mode,
+        "person_age_group": person_age_group,
         "result_image": b64,
         "seconds": res["seconds"],
         "peak_vram_mb": res["peak_vram_mb"],

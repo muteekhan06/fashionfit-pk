@@ -45,6 +45,14 @@ export function getGeminiKeyPool() {
 }
 
 export async function callGeminiWithFailover({ prompt, mimeType, rawData, generationConfig }) {
+  return callGeminiMultiImageWithFailover({
+    prompt,
+    images: [{ mimeType, rawData }],
+    generationConfig,
+  })
+}
+
+export async function callGeminiMultiImageWithFailover({ prompt, images, generationConfig }) {
   const pool = getGeminiKeyPool()
   if (pool.length === 0) {
     return {
@@ -58,14 +66,15 @@ export async function callGeminiWithFailover({ prompt, mimeType, rawData, genera
   const model = process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image'
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
 
+  const imageParts = (images || []).map((img) => ({
+    inline_data: { mime_type: img.mimeType || 'image/jpeg', data: img.rawData },
+  }))
+
   const payload = {
     contents: [
       {
         role: 'user',
-        parts: [
-          { text: prompt },
-          { inline_data: { mime_type: mimeType, data: rawData } },
-        ],
+        parts: [{ text: prompt }, ...imageParts],
       },
     ],
     generationConfig: generationConfig || {

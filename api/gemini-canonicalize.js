@@ -23,7 +23,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
   try {
-    const { image_base64, garment_hint } = req.body || {}
+    const { image_base64, garment_hint, garment_category = 'kurta' } = req.body || {}
     if (!image_base64 || typeof image_base64 !== 'string') {
       return res.status(400).json({ detail: 'Missing image_base64 payload.' })
     }
@@ -32,9 +32,20 @@ export default async function handler(req, res) {
     const mimeType = match ? match[1] : 'image/jpeg'
     const rawData = match ? match[2] : image_base64
 
+    let basePrompt = CANONICAL_PROMPT
+    if (garment_category === 'lehenga') {
+      basePrompt = `You are an elite e-commerce fashion studio retoucher for Pakistani bridal and wedding wear.
+Transform this wedding lehenga input into a single, 100% complete, symmetrical, front-facing flat-lay studio product photograph of the Pakistani embroidered choli blouse and wide A-line flared wedding lehenga skirt on a pure solid white background (#FFFFFF).
+Preserve exact fabric colors, antique-gold zardozi, gota, and scalloped hem borders. Remove any human model, mannequin, shadows, or background clutter.`
+    } else if (garment_category === 'kids') {
+      basePrompt = `You are an elite e-commerce fashion studio retoucher for Pakistani kids' ethnic wear.
+Transform this kids' ethnic outfit input into a single, 100% complete, symmetrical, front-facing flat-lay studio product photograph of the Pakistani girl's kurta/frock/sharara on a pure solid white background (#FFFFFF).
+Preserve exact fabric colors, embroidery, and child-proportioned garment cut. Remove any human model, hanger, shadows, or background clutter.`
+    }
+
     const promptText = garment_hint
-      ? `${CANONICAL_PROMPT}\nAdditional garment context: ${garment_hint}`
-      : CANONICAL_PROMPT
+      ? `${basePrompt}\nAdditional garment context: ${garment_hint}`
+      : basePrompt
 
     const result = await callGeminiWithFailover({
       prompt: promptText,

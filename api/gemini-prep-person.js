@@ -23,7 +23,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
   try {
-    const { image_base64 } = req.body || {}
+    const { image_base64, person_age_group = 'adult' } = req.body || {}
     if (!image_base64 || typeof image_base64 !== 'string') {
       return res.status(400).json({ detail: 'Missing image_base64 payload.' })
     }
@@ -32,8 +32,13 @@ export default async function handler(req, res) {
     const mimeType = match ? match[1] : 'image/jpeg'
     const rawData = match ? match[2] : image_base64
 
+    const promptText =
+      person_age_group === 'child'
+        ? `${PERSON_PREP_PROMPT}\nCRITICAL AGE LOCK: The subject is a young girl child. Strictly preserve 100% of her exact child age, facial innocence, height, and natural child proportions without aging her up.`
+        : PERSON_PREP_PROMPT
+
     const result = await callGeminiWithFailover({
-      prompt: PERSON_PREP_PROMPT,
+      prompt: promptText,
       mimeType,
       rawData,
     })

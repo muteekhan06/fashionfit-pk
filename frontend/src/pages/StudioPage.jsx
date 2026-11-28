@@ -13,8 +13,16 @@ import {
   UserCheck,
   Shirt,
   ArrowLeftRight,
+  Repeat,
+  ShieldCheck,
 } from 'lucide-react'
-import { STUDIO_POSES, PREDEFINED_KURTAS, STUDIO_TIPS } from '../data/verifiedData.js'
+import {
+  STUDIO_POSES,
+  STUDIO_MODELS,
+  WARDROBE_CATEGORIES,
+  ALL_WARDROBE_ITEMS,
+  STUDIO_TIPS,
+} from '../data/verifiedData.js'
 
 function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -31,6 +39,8 @@ async function urlToFile(url, filename = 'image.jpg') {
   return new File([blob], filename, { type: blob.type || 'image/jpeg' })
 }
 
+const STUDIO_MODEL_PATHS = new Set(STUDIO_MODELS.map((m) => m.image))
+
 export default function StudioPage({
   initialTab = 'photo',
   initialKurtaId = null,
@@ -41,24 +51,30 @@ export default function StudioPage({
   colabStatusMsg,
   onSaveColabUrl,
 }) {
+  const initialGarment =
+    ALL_WARDROBE_ITEMS.find((item) => item.id === initialKurtaId) || ALL_WARDROBE_ITEMS[0]
+
   const [activeTab, setActiveTab] = useState(initialTab)
   const [showServerPanel, setShowServerPanel] = useState(false)
 
-  // Person state
+  // Person state (Adult or Girl Child)
   const [personFile, setPersonFile] = useState(null)
   const [personPreview, setPersonPreview] = useState(null)
+  const [personAgeGroup, setPersonAgeGroup] = useState(
+    initialGarment.category === 'kids' ? 'child' : 'adult'
+  )
   const [preppedPersonPreview, setPreppedPersonPreview] = useState(null)
   const [autoRefinePerson, setAutoRefinePerson] = useState(true)
   const [personLoading, setPersonLoading] = useState(false)
 
-  // Garment state
-  const [selectedKurtaId, setSelectedKurtaId] = useState(initialKurtaId || PREDEFINED_KURTAS[0].id)
+  // Garment state (Women's Kurtas, Kids Girls, Wedding Lehengas, or Custom)
+  const [wardrobeCategory, setWardrobeCategory] = useState(initialGarment.category || 'kurta')
+  const [selectedKurtaId, setSelectedKurtaId] = useState(initialGarment.id)
   const [garmentFile, setGarmentFile] = useState(null)
-  const [garmentPreview, setGarmentPreview] = useState(
-    (PREDEFINED_KURTAS.find((k) => k.id === initialKurtaId) || PREDEFINED_KURTAS[0]).image
-  )
+  const [garmentPreview, setGarmentPreview] = useState(initialGarment.image)
   const [canonicalPreview, setCanonicalPreview] = useState(null)
   const [autoPerfectGarment, setAutoPerfectGarment] = useState(true)
+  const [preserveDupatta, setPreserveDupatta] = useState(true)
   const [garmentLoading, setGarmentLoading] = useState(false)
 
   // Try-On & Pose state
@@ -98,6 +114,54 @@ export default function StudioPage({
     return `/api${path}`
   }
 
+  // Derive active garment metadata & smart try-on mode automatically
+  const activeGarmentItem = ALL_WARDROBE_ITEMS.find((item) => item.id === selectedKurtaId)
+  const effectiveGarmentCategory = activeGarmentItem ? activeGarmentItem.category : wardrobeCategory
+  const effectiveGarmentAge = effectiveGarmentCategory === 'kids' ? 'child' : 'adult'
+  const isCrossAge = personAgeGroup !== effectiveGarmentAge
+
+  const activeTryonMode =
+    effectiveGarmentCategory === 'lehenga'
+      ? isCrossAge
+        ? 'cross_age'
+        : 'flared_lehenga'
+      : isCrossAge
+        ? 'cross_age'
+        : effectiveGarmentCategory === 'kids'
+          ? 'kids_ethnic'
+          : 'upper_body'
+
+  const activeModeBadge =
+    activeTryonMode === 'flared_lehenga'
+      ? {
+          title: 'Flared A-Line Wedding Lehenga Mode',
+          desc: 'Full choli & wide flared bridal skirt silhouette with embroidery lock',
+          tone: 'bg-rose-50 text-[#9B1D4A] border-rose-200',
+        }
+      : activeTryonMode === 'cross_age'
+        ? {
+            title:
+              personAgeGroup === 'child'
+                ? 'Cross-Age Transfer (Adult Outfit → Girl Child)'
+                : 'Cross-Age Transfer (Kids Outfit → Adult)',
+            desc: 'Visual fabric & motif transfer scaled proportionally to target stature',
+            tone: 'bg-amber-50 text-amber-800 border-amber-200',
+          }
+        : activeTryonMode === 'kids_ethnic'
+          ? {
+              title: 'Kids Ethnic Fit (Girl Child)',
+              desc: 'Proportion-aware kids silhouette preserving natural child stature',
+              tone: 'bg-emerald-50 text-[#0F5C4D] border-emerald-200',
+            }
+          : {
+              title: 'Pakistani Kurta Fit',
+              desc: 'True knee-length kameez drape, gala embroidery & dupatta protection',
+              tone: 'bg-slate-50 text-slate-700 border-slate-200',
+            }
+
+  const activeCategoryObj =
+    WARDROBE_CATEGORIES.find((c) => c.id === wardrobeCategory) || WARDROBE_CATEGORIES[0]
+
   const handlePersonUpload = (e) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -107,20 +171,45 @@ export default function StudioPage({
     setError('')
   }
 
-  const handleUseStudioModel = async () => {
+  const handleUseStudioModel = async (modelId = 'adult') => {
+    const model = STUDIO_MODELS.find((m) => m.id === modelId) || STUDIO_MODELS[0]
     setError('')
-    setPersonPreview('/brand/model_base.jpg')
+    setPersonAgeGroup(model.ageGroup)
+    setPersonPreview(model.image)
     setPreppedPersonPreview(null)
     try {
-      const f = await urlToFile('/brand/model_base.jpg', 'studio_model.jpg')
+      const f = await urlToFile(model.image, model.filename)
       setPersonFile(f)
     } catch {
       setError('Could not load studio model.')
     }
   }
 
+  const handleSwapCrossAge = async () => {
+    const nextAge = personAgeGroup === 'adult' ? 'child' : 'adult'
+    if (!personPreview || STUDIO_MODEL_PATHS.has(personPreview)) {
+      await handleUseStudioModel(nextAge)
+    } else {
+      setPersonAgeGroup(nextAge)
+    }
+  }
+
+  const handleSelectCategory = (catId) => {
+    setWardrobeCategory(catId)
+    const cat = WARDROBE_CATEGORIES.find((c) => c.id === catId)
+    if (cat && cat.items.length > 0 && selectedKurtaId !== 'custom') {
+      const first = cat.items[0]
+      setSelectedKurtaId(first.id)
+      setGarmentFile(null)
+      setGarmentPreview(first.image)
+      setCanonicalPreview(null)
+    }
+    setError('')
+  }
+
   const handleSelectPredefinedKurta = (kurta) => {
     setSelectedKurtaId(kurta.id)
+    setWardrobeCategory(kurta.category)
     setGarmentFile(null)
     setGarmentPreview(kurta.image)
     setCanonicalPreview(null)
@@ -150,7 +239,7 @@ export default function StudioPage({
       const res = await fetch('/api/gemini-prep-person', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image_base64: dataUrl }),
+        body: JSON.stringify({ image_base64: dataUrl, person_age_group: personAgeGroup }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || 'Could not refine person photo.')
@@ -166,18 +255,21 @@ export default function StudioPage({
 
   const runPerfectGarment = async () => {
     if (!garmentFile && !garmentPreview) {
-      setError('Select or upload a kurta photo first.')
+      setError('Select or upload an outfit photo first.')
       return null
     }
     setGarmentLoading(true)
     setError('')
     try {
-      const fileObj = garmentFile || (await urlToFile(garmentPreview, 'kurta.jpg'))
+      const fileObj = garmentFile || (await urlToFile(garmentPreview, 'garment.jpg'))
       const dataUrl = await fileToDataUrl(fileObj)
       const res = await fetch('/api/gemini-canonicalize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image_base64: dataUrl }),
+        body: JSON.stringify({
+          image_base64: dataUrl,
+          garment_category: effectiveGarmentCategory,
+        }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || 'Could not refine garment photo.')
@@ -193,16 +285,16 @@ export default function StudioPage({
 
   const runVton = async () => {
     if (!personPreview) {
-      setError('Please upload your photo or click "Use Studio Model" first.')
+      setError('Please upload a photo or pick Adult Model / Girl Child above.')
       return
     }
     if (!garmentPreview) {
-      setError('Please choose a kurta from the wardrobe or upload your own.')
+      setError('Please choose an outfit from the wardrobe or upload your own.')
       return
     }
-    if (!isGpuConnected) {
+    if (!isGpuConnected && !geminiReady) {
       setShowServerPanel(true)
-      setError('Connect your live studio server URL in the top bar to generate your try-on.')
+      setError('Connect your live studio server URL in the top bar or configure Cloud AI keys.')
       return
     }
 
@@ -215,35 +307,63 @@ export default function StudioPage({
 
     try {
       let personToSend = personFile || (await urlToFile(personPreview, 'person.jpg'))
-      let garmentToSend = garmentFile || (await urlToFile(garmentPreview, 'kurta.jpg'))
+      let garmentToSend = garmentFile || (await urlToFile(garmentPreview, 'garment.jpg'))
 
-      // Precision Gemini Person Studio Normalization (skip if already clean built-in studio model)
-      if (autoRefinePerson && geminiReady && personPreview !== '/brand/model_base.jpg') {
+      // Precision Person Normalization (skip for built-in studio models)
+      if (autoRefinePerson && geminiReady && !STUDIO_MODEL_PATHS.has(personPreview)) {
         const preppedUrl = preppedPersonPreview || (await runRefinePerson())
         if (preppedUrl) {
           personToSend = await urlToFile(preppedUrl, 'prepped_person.png')
         }
       }
 
-      // Precision Gemini Garment Reconstruction (skip if already clean predefined pure-white flat-lay)
+      // Precision Garment Reconstruction (skip for built-in pure-white flat-lays)
       if (autoPerfectGarment && geminiReady && selectedKurtaId === 'custom') {
         const canonicalUrl = canonicalPreview || (await runPerfectGarment())
         if (canonicalUrl) {
-          garmentToSend = await urlToFile(canonicalUrl, 'canonical_kurta.png')
+          garmentToSend = await urlToFile(canonicalUrl, 'canonical_garment.png')
         }
       }
 
-      const fd = new FormData()
-      fd.append('person_image', personToSend)
-      fd.append('garment_image', garmentToSend)
-      fd.append('model_id', selectedModel)
-      fd.append('category', 'tops')
-      fd.append('garment_photo_type', 'flat-lay')
-      fd.append('seed', '42')
+      let data
+      if (isGpuConnected) {
+        // Path A: Live Colab T4 GPU Server (CatVTON + Gold SegFormer + Flared A-Line Mask)
+        const fd = new FormData()
+        fd.append('person_image', personToSend)
+        fd.append('garment_image', garmentToSend)
+        fd.append('model_id', selectedModel)
+        fd.append('category', effectiveGarmentCategory === 'lehenga' ? 'one-pieces' : 'tops')
+        fd.append('garment_photo_type', 'flat-lay')
+        fd.append('tryon_mode', activeTryonMode)
+        fd.append('person_age_group', personAgeGroup)
+        fd.append('preserve_dupatta', String(preserveDupatta))
+        fd.append('seed', '42')
 
-      const res = await fetch(directEndpoint('/vton'), { method: 'POST', body: fd })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.detail || 'Try-on generation failed.')
+        const res = await fetch(directEndpoint('/vton'), { method: 'POST', body: fd })
+        data = await res.json()
+        if (!res.ok) throw new Error(data.detail || 'Try-on generation failed.')
+      } else {
+        // Path B: Built-in Cloud AI Studio Engine (Zero-Setup Live Try-On on Vercel)
+        const [personDataUrl, garmentDataUrl] = await Promise.all([
+          fileToDataUrl(personToSend),
+          fileToDataUrl(garmentToSend),
+        ])
+        const res = await fetch('/api/gemini-tryon', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            person_image_base64: personDataUrl,
+            garment_image_base64: garmentDataUrl,
+            tryon_mode: activeTryonMode,
+            person_age_group: personAgeGroup,
+            garment_category: effectiveGarmentCategory,
+            preserve_dupatta: preserveDupatta,
+          }),
+        })
+        data = await res.json()
+        if (!res.ok) throw new Error(data.detail || 'Cloud try-on generation failed.')
+      }
+
       setError('')
       setVtonResult(data)
       setGeneratedPoses({ front: data.result_image })
@@ -337,7 +457,7 @@ export default function StudioPage({
             {geminiReady && (
               <span className="hidden md:inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200/70">
                 <Wand2 className="w-3.5 h-3.5" />
-                AI Precision Ready
+                Cloud AI Ready
               </span>
             )}
             <button
@@ -349,7 +469,7 @@ export default function StudioPage({
               }`}
             >
               <Settings2 className="w-3.5 h-3.5" />
-              {isGpuConnected ? 'Live Server On' : 'Connect Server'}
+              {isGpuConnected ? 'Live GPU On' : 'Connect GPU'}
             </button>
           </div>
         </div>
@@ -359,8 +479,13 @@ export default function StudioPage({
           <div className="bg-slate-50 border-t border-slate-200 px-4 sm:px-6 py-3">
             <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
               <p className="text-xs text-slate-600">
-                <span className="font-semibold text-slate-800">Studio Engine URL: </span>
-                {colabStatusMsg || (isGpuConnected ? 'Connected & ready' : 'Paste your live server URL to run custom try-on')}
+                <span className="font-semibold text-slate-800">Optional Colab T4 GPU URL: </span>
+                {colabStatusMsg ||
+                  (isGpuConnected
+                    ? 'Connected to live Colab GPU'
+                    : geminiReady
+                      ? 'Cloud AI Studio is active by default — paste a Colab URL to switch to T4 CatVTON GPU'
+                      : 'Paste your live server URL to run custom try-on')}
               </p>
               <div className="flex items-center gap-2 w-full sm:w-auto">
                 <input
@@ -423,22 +548,34 @@ export default function StudioPage({
           <div className="grid lg:grid-cols-12 gap-8 items-start">
             {/* LEFT COLUMN: Controls, Uploads, Wardrobe & Tips */}
             <div className="lg:col-span-5 space-y-6">
-              {/* Step 1: Person Photo */}
+              {/* Step 1: Person Photo (Adult & Girl Child) */}
               <div className="rounded-3xl bg-white border border-slate-200/80 p-5 shadow-xs space-y-4">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <span className="w-6 h-6 rounded-full bg-[#0F5C4D] text-white text-xs font-bold flex items-center justify-center">
                       1
                     </span>
                     <h2 className="text-sm font-bold text-slate-900">Your Photo</h2>
                   </div>
-                  <button
-                    onClick={handleUseStudioModel}
-                    className="inline-flex items-center gap-1 text-xs font-semibold text-[#0F5C4D] hover:underline cursor-pointer"
-                  >
-                    <UserCheck className="w-3.5 h-3.5" />
-                    Use Studio Model
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    {STUDIO_MODELS.map((m) => {
+                      const active = personPreview === m.image
+                      return (
+                        <button
+                          key={m.id}
+                          onClick={() => handleUseStudioModel(m.id)}
+                          className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full border transition cursor-pointer ${
+                            active
+                              ? 'bg-[#0F5C4D] text-white border-[#0F5C4D]'
+                              : 'bg-white text-[#0F5C4D] border-emerald-200 hover:bg-emerald-50'
+                          }`}
+                        >
+                          <UserCheck className="w-3 h-3" />
+                          {m.label}
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
 
                 {personPreview ? (
@@ -449,19 +586,46 @@ export default function StudioPage({
                       className="w-20 h-28 object-cover rounded-xl bg-white border border-slate-200 shrink-0"
                     />
                     <div className="space-y-2 flex-1 min-w-0">
-                      <p className="text-xs font-bold text-slate-800">
-                        {preppedPersonPreview ? 'Studio-Normalized Portrait Ready' : 'Photo Selected'}
-                      </p>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs font-bold text-slate-800 truncate">
+                          {preppedPersonPreview
+                            ? 'Studio-Normalized Ready'
+                            : personAgeGroup === 'child'
+                              ? 'Girl Child Photo Ready'
+                              : 'Adult Photo Ready'}
+                        </p>
+                      </div>
+
+                      {/* Subject Age Toggle (keeps Cross-Age detection exact on custom uploads) */}
+                      <div className="inline-flex rounded-full bg-white border border-slate-200 p-0.5">
+                        {[
+                          { id: 'adult', label: 'Adult' },
+                          { id: 'child', label: 'Girl Child' },
+                        ].map((opt) => (
+                          <button
+                            key={opt.id}
+                            onClick={() => setPersonAgeGroup(opt.id)}
+                            className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold transition cursor-pointer ${
+                              personAgeGroup === opt.id
+                                ? 'bg-slate-900 text-white'
+                                : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+
                       <div className="flex flex-wrap gap-2">
-                        <label className="cursor-pointer text-xs font-semibold px-3 py-1.5 rounded-full bg-white border border-slate-300 hover:bg-slate-50">
+                        <label className="cursor-pointer text-xs font-semibold px-3 py-1 rounded-full bg-white border border-slate-300 hover:bg-slate-50">
                           Change
                           <input type="file" accept="image/*" className="hidden" onChange={handlePersonUpload} />
                         </label>
-                        {personPreview !== '/brand/model_base.jpg' && (
+                        {!STUDIO_MODEL_PATHS.has(personPreview) && (
                           <button
                             onClick={runRefinePerson}
                             disabled={personLoading}
-                            className="inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-full bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 cursor-pointer"
+                            className="inline-flex items-center gap-1 text-xs font-semibold px-3 py-1 rounded-full bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 cursor-pointer"
                           >
                             {personLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
                             Studio Refine
@@ -474,30 +638,40 @@ export default function StudioPage({
                   <label className="block cursor-pointer rounded-2xl border-2 border-dashed border-slate-300 hover:border-[#0F5C4D] bg-[#FAF8F5]/70 p-6 text-center transition">
                     <Upload className="w-7 h-7 text-slate-400 mx-auto mb-2" />
                     <p className="text-sm font-semibold text-slate-800">Upload a full-body photo</p>
-                    <p className="text-xs text-slate-500 mt-1">JPG or PNG • Or click “Use Studio Model” above</p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      JPG or PNG • Or select <strong>Adult Model</strong> / <strong>Girl Child</strong> above
+                    </p>
                     <input type="file" accept="image/*" className="hidden" onChange={handlePersonUpload} />
                   </label>
                 )}
 
-                <label className="flex items-center gap-2 text-xs font-medium text-slate-600 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={autoRefinePerson}
-                    onChange={(e) => setAutoRefinePerson(e.target.checked)}
-                    className="rounded border-slate-300 text-[#0F5C4D] focus:ring-[#0F5C4D]"
-                  />
-                  Auto-clean lighting &amp; background on uploaded photo for higher accuracy
-                </label>
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2 text-xs font-medium text-slate-600 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={autoRefinePerson}
+                      onChange={(e) => setAutoRefinePerson(e.target.checked)}
+                      className="rounded border-slate-300 text-[#0F5C4D] focus:ring-[#0F5C4D]"
+                    />
+                    Auto-clean lighting &amp; background on uploaded photo for higher accuracy
+                  </label>
+                  {personAgeGroup === 'child' && (
+                    <p className="flex items-center gap-1.5 text-[11px] text-emerald-800 bg-emerald-50/80 border border-emerald-200/70 rounded-xl px-3 py-1.5">
+                      <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                      Privacy-first: Minor photos are processed strictly in-memory with zero storage.
+                    </p>
+                  )}
+                </div>
               </div>
 
-              {/* Step 2: Predefined Wardrobe OR Upload Kurta */}
+              {/* Step 2: Predefined Wardrobe (Women's Kurtas, Kids Girls, Wedding Lehengas) OR Upload */}
               <div className="rounded-3xl bg-white border border-slate-200/80 p-5 shadow-xs space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="w-6 h-6 rounded-full bg-[#9B1D4A] text-white text-xs font-bold flex items-center justify-center">
                       2
                     </span>
-                    <h2 className="text-sm font-bold text-slate-900">Choose or Upload Kurta</h2>
+                    <h2 className="text-sm font-bold text-slate-900">Choose or Upload Outfit</h2>
                   </div>
                   <label className="inline-flex items-center gap-1 text-xs font-semibold text-[#9B1D4A] hover:underline cursor-pointer">
                     <Upload className="w-3.5 h-3.5" />
@@ -506,9 +680,29 @@ export default function StudioPage({
                   </label>
                 </div>
 
+                {/* Clean 3-Category Wardrobe Switcher */}
+                <div className="grid grid-cols-3 gap-1.5 p-1 rounded-2xl bg-[#FAF8F5] border border-slate-200/70">
+                  {WARDROBE_CATEGORIES.map((cat) => {
+                    const active = wardrobeCategory === cat.id
+                    return (
+                      <button
+                        key={cat.id}
+                        onClick={() => handleSelectCategory(cat.id)}
+                        className={`py-2 px-2 rounded-xl text-[11px] sm:text-xs font-bold transition cursor-pointer ${
+                          active
+                            ? 'bg-white text-slate-900 shadow-xs border border-slate-200/80'
+                            : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                      >
+                        {cat.label}
+                      </button>
+                    )
+                  })}
+                </div>
+
                 {/* Predefined Wardrobe Grid */}
                 <div className="grid grid-cols-3 gap-3">
-                  {PREDEFINED_KURTAS.map((kurta) => {
+                  {activeCategoryObj.items.map((kurta) => {
                     const active = selectedKurtaId === kurta.id
                     return (
                       <button
@@ -540,12 +734,12 @@ export default function StudioPage({
                   <div className="flex items-center gap-3.5 p-3 rounded-2xl bg-[#FAF8F5] border border-slate-200/80">
                     <img
                       src={canonicalPreview || garmentPreview}
-                      alt="Custom kurta"
+                      alt="Custom outfit"
                       className="w-16 h-20 object-contain rounded-lg bg-white border border-slate-200"
                     />
                     <div className="flex-1 min-w-0 space-y-1.5">
                       <p className="text-xs font-bold text-slate-800">
-                        {canonicalPreview ? 'Studio-Perfected Kurta Ready' : 'Custom Kurta Uploaded'}
+                        {canonicalPreview ? 'Studio-Perfected Outfit Ready' : 'Custom Outfit Uploaded'}
                       </p>
                       <button
                         onClick={runPerfectGarment}
@@ -559,15 +753,42 @@ export default function StudioPage({
                   </div>
                 )}
 
-                <label className="flex items-center gap-2 text-xs font-medium text-slate-600 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={autoPerfectGarment}
-                    onChange={(e) => setAutoPerfectGarment(e.target.checked)}
-                    className="rounded border-slate-300 text-[#9B1D4A] focus:ring-[#9B1D4A]"
-                  />
-                  Auto-reconstruct &amp; clean custom garment uploads before try-on
-                </label>
+                {/* Active Smart Mode Bar (Auto-detects Kids, Cross-Age, and Flared Wedding Lehenga) */}
+                <div className={`rounded-2xl border px-3.5 py-2.5 flex items-center justify-between gap-2 ${activeModeBadge.tone}`}>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold leading-tight">{activeModeBadge.title}</p>
+                    <p className="text-[11px] opacity-85 mt-0.5 leading-snug">{activeModeBadge.desc}</p>
+                  </div>
+                  <button
+                    onClick={handleSwapCrossAge}
+                    title="Toggle Adult vs Girl Child for Cross-Age Try-On"
+                    className="shrink-0 inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1.5 rounded-full bg-white/90 text-slate-800 border border-slate-200 hover:bg-white transition cursor-pointer"
+                  >
+                    <Repeat className="w-3 h-3" />
+                    {personAgeGroup === 'adult' ? 'Try on Child' : 'Try on Adult'}
+                  </button>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="flex items-center gap-2 text-xs font-medium text-slate-600 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={autoPerfectGarment}
+                      onChange={(e) => setAutoPerfectGarment(e.target.checked)}
+                      className="rounded border-slate-300 text-[#9B1D4A] focus:ring-[#9B1D4A]"
+                    />
+                    Auto-reconstruct &amp; clean custom garment uploads before try-on
+                  </label>
+                  <label className="flex items-center gap-2 text-xs font-medium text-slate-600 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={preserveDupatta}
+                      onChange={(e) => setPreserveDupatta(e.target.checked)}
+                      className="rounded border-slate-300 text-[#0F5C4D] focus:ring-[#0F5C4D]"
+                    />
+                    Preserve draped dupatta layer during outfit swap
+                  </label>
+                </div>
 
                 <button
                   onClick={runVton}
@@ -636,7 +857,9 @@ export default function StudioPage({
                     {poseLoading ? (
                       <div className="flex flex-col items-center gap-3 text-slate-500 py-20">
                         <Loader2 className="w-8 h-8 animate-spin text-[#9B1D4A]" />
-                        <p className="text-xs font-semibold">Generating {STUDIO_POSES.find((p) => p.id === resultPose)?.label}...</p>
+                        <p className="text-xs font-semibold">
+                          Generating {STUDIO_POSES.find((p) => p.id === resultPose)?.label}...
+                        </p>
                       </div>
                     ) : (
                       <img
@@ -649,6 +872,10 @@ export default function StudioPage({
                         className="w-full max-h-[540px] object-contain"
                       />
                     )}
+                    <span className="absolute top-4 left-4 px-3 py-1 rounded-full bg-white/95 backdrop-blur border border-slate-200 text-[11px] font-bold text-slate-800 shadow-xs">
+                      {activeModeBadge.title}
+                      {vtonResult.seconds ? ` • ${vtonResult.seconds}s` : ''}
+                    </span>
                     <button
                       onClick={() => setShowOriginalToggle(!showOriginalToggle)}
                       className="absolute bottom-4 right-4 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-white/95 backdrop-blur border border-slate-200 text-xs font-bold text-slate-800 shadow-sm hover:bg-white cursor-pointer"
@@ -657,8 +884,14 @@ export default function StudioPage({
                       {showOriginalToggle ? 'Show Try-On' : 'Compare Original'}
                     </button>
                   </div>
-                  <div className="flex items-center justify-between text-xs text-slate-500">
-                    <span>Click Angled Runway or Back Silhouette above to generate additional angles</span>
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                    <span>
+                      Engine:{' '}
+                      <strong className="text-slate-700">
+                        {vtonResult.engine === 'colab_gpu_live' ? 'Live Colab T4 GPU' : 'Cloud AI Studio'}
+                      </strong>{' '}
+                      • Click Angled Runway or Back Silhouette above for more angles
+                    </span>
                     <button
                       onClick={() => {
                         setVtonResult(null)
@@ -673,23 +906,37 @@ export default function StudioPage({
               ) : (
                 <div className="rounded-2xl bg-[#FAF8F5] border border-slate-200/70 p-6 min-h-[480px] flex flex-col items-center justify-center text-center space-y-6">
                   {personPreview ? (
-                    <div className="grid grid-cols-2 gap-4 w-full max-w-md">
-                      <div className="rounded-2xl bg-white p-2.5 border border-slate-200 shadow-xs">
-                        <p className="text-[11px] font-bold text-slate-500 mb-2">Selected Person</p>
-                        <img
-                          src={preppedPersonPreview || personPreview}
-                          alt="Person ready"
-                          className="w-full h-64 object-contain rounded-xl"
-                        />
+                    <div className="space-y-4 w-full max-w-md">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="rounded-2xl bg-white p-2.5 border border-slate-200 shadow-xs">
+                          <p className="text-[11px] font-bold text-slate-500 mb-2">
+                            {personAgeGroup === 'child' ? 'Girl Child Model' : 'Selected Person'}
+                          </p>
+                          <img
+                            src={preppedPersonPreview || personPreview}
+                            alt="Person ready"
+                            className="w-full h-64 object-contain rounded-xl"
+                          />
+                        </div>
+                        <div className="rounded-2xl bg-white p-2.5 border border-slate-200 shadow-xs">
+                          <p className="text-[11px] font-bold text-slate-500 mb-2">
+                            {effectiveGarmentCategory === 'lehenga'
+                              ? 'Selected Wedding Lehenga'
+                              : effectiveGarmentCategory === 'kids'
+                                ? 'Selected Kids Outfit'
+                                : 'Selected Kurta'}
+                          </p>
+                          <img
+                            src={canonicalPreview || garmentPreview}
+                            alt="Outfit ready"
+                            className="w-full h-64 object-contain rounded-xl"
+                          />
+                        </div>
                       </div>
-                      <div className="rounded-2xl bg-white p-2.5 border border-slate-200 shadow-xs">
-                        <p className="text-[11px] font-bold text-slate-500 mb-2">Selected Kurta</p>
-                        <img
-                          src={canonicalPreview || garmentPreview}
-                          alt="Kurta ready"
-                          className="w-full h-64 object-contain rounded-xl"
-                        />
-                      </div>
+                      <p className="text-xs text-slate-500">
+                        Ready for <strong>{activeModeBadge.title}</strong> — click{' '}
+                        <strong>Generate Virtual Try-On</strong> on the left.
+                      </p>
                     </div>
                   ) : (
                     <div className="max-w-sm space-y-3">
@@ -698,7 +945,9 @@ export default function StudioPage({
                       </div>
                       <h3 className="font-display text-xl font-bold text-slate-900">Your Dressing Room Awaits</h3>
                       <p className="text-xs text-slate-500 leading-relaxed">
-                        Upload your photo on the left (or click <strong>Use Studio Model</strong>), select any Pakistani kurta from our wardrobe, and click <strong>Generate Virtual Try-On</strong>.
+                        Pick <strong>Adult Model</strong> or <strong>Girl Child</strong> (or upload your own photo),
+                        choose from <strong>Women’s Kurtas</strong>, <strong>Kids (Girls)</strong>, or{' '}
+                        <strong>Wedding Lehengas</strong>, and click <strong>Generate Virtual Try-On</strong>.
                       </p>
                     </div>
                   )}
@@ -718,7 +967,8 @@ export default function StudioPage({
                   Emerald Zari Embroidered Kurta
                 </h2>
                 <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
-                  Explore how FashionFit-PK presents every Pakistani kurta across three dedicated studio poses—keeping embroidery, sleeve length, and hemline consistent from every angle.
+                  Explore how FashionFit-PK presents every Pakistani outfit across three dedicated studio poses—keeping
+                  embroidery, sleeve length, and hemline consistent from every angle.
                 </p>
               </div>
 
@@ -779,7 +1029,7 @@ export default function StudioPage({
               <div>
                 <h2 className="text-lg font-bold text-slate-900">Pakistani Outfit Cutout Tool</h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Upload any catalog photo to cleanly isolate the kurta from trousers and dupatta.
+                  Upload any catalog photo to cleanly isolate the kurta, lehenga, and dupatta.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2.5">
@@ -799,47 +1049,45 @@ export default function StudioPage({
                     className="hidden"
                     onChange={(e) => {
                       const f = e.target.files?.[0]
-                      if (!f) return
-                      setSegFile(f)
-                      setSegPreview(URL.createObjectURL(f))
-                      setSegResult(null)
-                      setError('')
+                      if (f) {
+                        setSegFile(f)
+                        setSegPreview(URL.createObjectURL(f))
+                        setSegResult(null)
+                      }
                     }}
                   />
                 </label>
                 <button
                   onClick={runSegment}
                   disabled={loading}
-                  className="flex items-center gap-2 px-5 py-2 rounded-full bg-[#0F5C4D] text-white text-xs font-semibold hover:bg-[#0b473b] disabled:opacity-50 cursor-pointer"
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-5 py-2 rounded-full bg-[#0F5C4D] text-white hover:bg-[#0b473b] disabled:opacity-50 cursor-pointer"
                 >
-                  {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Scissors className="w-4 h-4" />}
-                  Extract Kurta
+                  {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Scissors className="w-3.5 h-3.5" />}
+                  Extract Cutout
                 </button>
               </div>
             </div>
 
             {segResult ? (
               <div className="grid md:grid-cols-3 gap-5">
-                <div className="rounded-2xl bg-[#FAF8F5] border border-slate-200 p-3">
-                  <p className="text-xs font-bold text-slate-600 mb-2">Original Photo</p>
-                  <img src={segPreview} alt="Original" className="w-full h-72 object-contain rounded-xl bg-white" />
-                </div>
-                <div className="rounded-2xl bg-[#FAF8F5] border border-slate-200 p-3">
-                  <p className="text-xs font-bold text-[#0F5C4D] mb-2">Detected Outfit Layers</p>
-                  <img src={segResult.overlay_image} alt="Detected" className="w-full h-72 object-contain rounded-xl bg-white" />
-                </div>
-                <div className="rounded-2xl bg-[#FAF8F5] border border-slate-200 p-3">
-                  <p className="text-xs font-bold text-[#9B1D4A] mb-2">Clean Kurta Cutout</p>
-                  <img src={segResult.kurta_cutout_image} alt="Cutout" className="w-full h-72 object-contain rounded-xl bg-white" />
-                </div>
-              </div>
-            ) : segPreview ? (
-              <div className="rounded-2xl bg-[#FAF8F5] border border-slate-200 p-6 text-center">
-                <img src={segPreview} alt="Preview" className="mx-auto h-72 object-contain rounded-xl" />
+                {[
+                  { label: 'Original', src: segPreview },
+                  { label: '4-Class Overlay', src: segResult.overlay_image },
+                  { label: 'Isolated Garment', src: segResult.kurta_cutout_image },
+                ].map((card) => (
+                  <div key={card.label} className="rounded-2xl bg-[#FAF8F5] border border-slate-200 p-3 space-y-2">
+                    <p className="text-xs font-bold text-slate-700">{card.label}</p>
+                    <img src={card.src} alt={card.label} className="w-full h-72 object-contain rounded-xl bg-white" />
+                  </div>
+                ))}
               </div>
             ) : (
-              <div className="rounded-2xl border-2 border-dashed border-slate-200 bg-[#FAF8F5]/60 p-14 text-center text-slate-400 text-sm">
-                Upload an outfit photo above to preview layer detection and kurta extraction.
+              <div className="rounded-2xl bg-[#FAF8F5] border border-dashed border-slate-300 p-10 text-center text-xs text-slate-500">
+                {segPreview ? (
+                  <img src={segPreview} alt="Preview" className="h-64 mx-auto object-contain rounded-xl" />
+                ) : (
+                  'Upload a full-body Pakistani outfit photo above and click Extract Cutout.'
+                )}
               </div>
             )}
           </div>
